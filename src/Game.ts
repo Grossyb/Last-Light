@@ -771,67 +771,159 @@ export class Game {
   private showDeathScreen(): void {
     if (!this.uiContainer) return;
 
+    // Hide hotbar and minimap
+    if (this.hotBar) {
+      this.hotBar.setVisible(false);
+    }
+    if (this.minimap) {
+      this.minimap.getContainer().visible = false;
+    }
+    // Hide HUD elements
+    if (this.hudPanel) this.hudPanel.visible = false;
+    if (this.hudLevelText) this.hudLevelText.visible = false;
+    if (this.hudZombieText) this.hudZombieText.visible = false;
+    if (this.hudPointsText) this.hudPointsText.visible = false;
+    if (this.hudHordeText) this.hudHordeText.visible = false;
+    if (this.hudText) this.hudText.visible = false;
+    if (this.hpBar) this.hpBar.visible = false;
+    if (this.hpBarBg) this.hpBarBg.visible = false;
+    if (this.hpText) this.hpText.visible = false;
+    if (this.timerPanel) this.timerPanel.visible = false;
+    if (this.timerText) this.timerText.visible = false;
+    if (this.parText) this.parText.visible = false;
+
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
     this.deathScreen = new Container();
 
-    // Dark overlay
+    // Full screen dark overlay
     const overlay = new Graphics();
-    overlay.rect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-    overlay.fill({ color: 0x000000, alpha: 0.85 });
+    overlay.rect(0, 0, w, h);
+    overlay.fill({ color: 0x000000, alpha: 0.9 });
     this.deathScreen.addChild(overlay);
 
-    // Game Over text
+    // Game Over text (styled like title screen)
     const titleStyle = new TextStyle({
-      fontFamily: 'monospace',
-      fontSize: 48,
+      fontFamily: 'Arial Black, Impact, sans-serif',
+      fontSize: 72,
       fill: 0xff4444,
       fontWeight: 'bold',
+      letterSpacing: 8,
+      dropShadow: {
+        color: 0x000000,
+        blur: 8,
+        distance: 4,
+      },
     });
     const titleText = new Text({ text: 'GAME OVER', style: titleStyle });
-    titleText.x = GAME_WIDTH / 2 - titleText.width / 2;
-    titleText.y = 200;
+    titleText.x = w / 2 - titleText.width / 2;
+    titleText.y = h * 0.25;
     this.deathScreen.addChild(titleText);
 
-    // Stats
+    // Stats panel background
+    const kills = this.combatSystem?.getKillCount() ?? 0;
+    const finalTime = this.totalTime + this.levelTime;
+    const minutes = Math.floor(finalTime / 60);
+    const seconds = Math.floor(finalTime % 60);
+    const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
     const statsStyle = new TextStyle({
       fontFamily: 'monospace',
-      fontSize: 20,
+      fontSize: 18,
       fill: 0xffffff,
+      fontWeight: 'bold',
+      dropShadow: {
+        color: 0x000000,
+        blur: 2,
+        distance: 1,
+      },
     });
     const statsText = new Text({
-      text: `Reached Level ${this.currentLevel}\nTotal Kills: ${this.combatSystem?.getKillCount() ?? 0}\nPoints Earned: ${this.cumulativePoints}`,
+      text: `Level ${this.currentLevel}  |  Kills: ${kills}  |  Points: ${this.cumulativePoints}  |  Time: ${timeStr}`,
       style: statsStyle,
     });
-    statsText.x = GAME_WIDTH / 2 - statsText.width / 2;
-    statsText.y = 280;
+
+    // Stats panel
+    const panelPadding = 30;
+    const panelWidth = statsText.width + panelPadding * 2;
+    const panelHeight = 50;
+    const panelX = w / 2 - panelWidth / 2;
+    const panelY = h * 0.42;
+
+    const statsPanel = new Graphics();
+    statsPanel.roundRect(panelX, panelY, panelWidth, panelHeight, 6);
+    statsPanel.fill({ color: 0x000000, alpha: 0.6 });
+    statsPanel.stroke({ color: 0xffaa00, width: 1, alpha: 0.5 });
+    this.deathScreen.addChild(statsPanel);
+
+    statsText.x = w / 2 - statsText.width / 2;
+    statsText.y = panelY + panelHeight / 2 - statsText.height / 2;
     this.deathScreen.addChild(statsText);
 
     // Try Again button
+    const buttonWidth = 220;
+    const buttonHeight = 55;
+    const buttonY = h * 0.58;
+
+    const tryAgainGlow = new Graphics();
+    tryAgainGlow.roundRect(w / 2 - buttonWidth - 20 - 4, buttonY - 4, buttonWidth + 8, buttonHeight + 8, 12);
+    tryAgainGlow.fill({ color: 0x66ff66, alpha: 0.3 });
+    this.deathScreen.addChild(tryAgainGlow);
+
     const tryAgainBg = new Graphics();
-    tryAgainBg.roundRect(GAME_WIDTH / 2 - 215, 400, 200, 50, 8);
+    tryAgainBg.roundRect(w / 2 - buttonWidth - 20, buttonY, buttonWidth, buttonHeight, 8);
     tryAgainBg.fill(0x44aa44);
+    tryAgainBg.stroke({ color: 0x66ff66, width: 2 });
     this.deathScreen.addChild(tryAgainBg);
 
     const buttonStyle = new TextStyle({
-      fontFamily: 'monospace',
-      fontSize: 16,
+      fontFamily: 'Arial Black, sans-serif',
+      fontSize: 18,
       fill: 0xffffff,
       fontWeight: 'bold',
+      letterSpacing: 1,
     });
     const tryAgainText = new Text({ text: 'Try Again [SPACE]', style: buttonStyle });
-    tryAgainText.x = GAME_WIDTH / 2 - 215 + 100 - tryAgainText.width / 2;
-    tryAgainText.y = 413;
+    tryAgainText.x = w / 2 - buttonWidth - 20 + buttonWidth / 2 - tryAgainText.width / 2;
+    tryAgainText.y = buttonY + buttonHeight / 2 - tryAgainText.height / 2;
     this.deathScreen.addChild(tryAgainText);
 
     // Main Menu button
+    const menuGlow = new Graphics();
+    menuGlow.roundRect(w / 2 + 20 - 4, buttonY - 4, buttonWidth + 8, buttonHeight + 8, 12);
+    menuGlow.fill({ color: 0x6699ff, alpha: 0.3 });
+    this.deathScreen.addChild(menuGlow);
+
     const menuBg = new Graphics();
-    menuBg.roundRect(GAME_WIDTH / 2 + 15, 400, 200, 50, 8);
+    menuBg.roundRect(w / 2 + 20, buttonY, buttonWidth, buttonHeight, 8);
     menuBg.fill(0x4466aa);
+    menuBg.stroke({ color: 0x6699ff, width: 2 });
     this.deathScreen.addChild(menuBg);
 
     const menuText = new Text({ text: 'Main Menu [M]', style: buttonStyle });
-    menuText.x = GAME_WIDTH / 2 + 15 + 100 - menuText.width / 2;
-    menuText.y = 413;
+    menuText.x = w / 2 + 20 + buttonWidth / 2 - menuText.width / 2;
+    menuText.y = buttonY + buttonHeight / 2 - menuText.height / 2;
     this.deathScreen.addChild(menuText);
+
+    // Controls hint
+    const controlsStyle = new TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 13,
+      fill: 0x999999,
+      dropShadow: {
+        color: 0x000000,
+        blur: 3,
+        distance: 1,
+      },
+    });
+    const controlsText = new Text({
+      text: 'Press SPACE to try again or M for main menu',
+      style: controlsStyle,
+    });
+    controlsText.x = w / 2 - controlsText.width / 2;
+    controlsText.y = h - 60;
+    this.deathScreen.addChild(controlsText);
 
     this.uiContainer.addChild(this.deathScreen);
   }
@@ -941,18 +1033,6 @@ export class Game {
     // Update shop display with new points and inventory
     this.shop?.updateDisplay(this.points, this.playerHP, this.playerMaxHP);
 
-    // Update shop's inventory display (hotbar)
-    const currentWeapon = this.combatSystem?.getWeapon() ?? 'pistol';
-    this.shop?.updateInventory({
-      currentWeapon,
-      hasRifle: this.shop?.hasWeapon('rifle') ?? false,
-      hasShotgun: this.shop?.hasWeapon('shotgun') ?? false,
-      hasGatling: this.shop?.hasWeapon('gatling') ?? false,
-      hasScythe: this.shop?.hasWeapon('scythe') ?? false,
-      lanternCount: this.lanternCount,
-      flareCount: this.flareCount,
-      teleporterCount: this.teleporterCount,
-    });
   }
 
   private onPowerUpStart(type: PowerUpType): void {

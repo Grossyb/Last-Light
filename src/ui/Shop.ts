@@ -48,8 +48,6 @@ export class Shop {
   private pointAnimations: { text: Text; startTime: number; startY: number }[] = [];
 
   // Hotbar display
-  private hotbarContainer: Container;
-  private hotbarSlots: Container[] = [];
 
   private upgrades: Upgrade[] = [];
   private onPurchase: PurchaseCallback;
@@ -57,7 +55,6 @@ export class Shop {
   private onClose: CloseCallback | null = null;
   private isOpen = false;
   private playerAtFullHealth = false;
-  private inventoryState: InventoryState | null = null;
 
   // Item slot size (2x larger for visibility)
   private readonly SLOT_SIZE = 140;
@@ -145,10 +142,6 @@ export class Shop {
       }
     });
     this.container.addChild(this.restartButton);
-
-    // Hotbar container
-    this.hotbarContainer = new Container();
-    this.container.addChild(this.hotbarContainer);
 
     // Initialize upgrades
     this.initializeUpgrades();
@@ -274,11 +267,10 @@ export class Shop {
     }
   }
 
-  open(points: number, nextLevel: number, currentHP?: number, maxHP?: number, inventory?: InventoryState): void {
+  open(points: number, nextLevel: number, currentHP?: number, maxHP?: number, _inventory?: InventoryState): void {
     this.isOpen = true;
     this.container.visible = true;
     this.playerAtFullHealth = currentHP !== undefined && maxHP !== undefined && currentHP >= maxHP;
-    this.inventoryState = inventory || null;
 
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -327,7 +319,6 @@ export class Shop {
     this.restartButton.y = panelY + panelHeight + 20;
 
     this.updateDisplay(points);
-    this.updateHotbarDisplay();
   }
 
   close(): void {
@@ -383,9 +374,6 @@ export class Shop {
     currentY = this.drawSection('WEAPONS', weapons, points, panelX, panelWidth, currentY, 0xaa66ff);
     currentY = this.drawSection('UPGRADES', permanent, points, panelX, panelWidth, currentY + 6, 0xffaa66);
     currentY = this.drawSection('ITEMS', consumables, points, panelX, panelWidth, currentY + 6, 0x66ffaa);
-
-    // Update hotbar after purchases
-    this.updateHotbarDisplay();
   }
 
   private drawSection(title: string, items: Upgrade[], points: number, panelX: number, panelWidth: number, startY: number, accentColor: number): number {
@@ -651,143 +639,6 @@ export class Shop {
     };
 
     requestAnimationFrame(animate);
-  }
-
-  private updateHotbarDisplay(): void {
-    // Clear existing hotbar slots
-    for (const slot of this.hotbarSlots) {
-      this.hotbarContainer.removeChild(slot);
-    }
-    this.hotbarSlots = [];
-
-    if (!this.inventoryState) return;
-
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    const slotSize = 50;
-    const slotGap = 8;
-
-    const slots = [
-      { id: 'pistol', label: 'Pistol', hotkey: '1', owned: true, active: this.inventoryState.currentWeapon === 'pistol' },
-      { id: 'rifle', label: 'Rifle', hotkey: '2', owned: this.inventoryState.hasRifle, active: this.inventoryState.currentWeapon === 'rifle' },
-      { id: 'shotgun', label: 'Shotgun', hotkey: '3', owned: this.inventoryState.hasShotgun, active: this.inventoryState.currentWeapon === 'shotgun' },
-      { id: 'teleporter', label: 'Teleporter', hotkey: '4', owned: this.inventoryState.teleporterCount > 0, count: this.inventoryState.teleporterCount },
-      { id: 'gatling', label: 'Gatling', hotkey: '5', owned: this.inventoryState.hasGatling, active: this.inventoryState.currentWeapon === 'gatling' },
-      { id: 'scythe', label: 'Scythe', hotkey: '6', owned: this.inventoryState.hasScythe, active: this.inventoryState.currentWeapon === 'scythe' },
-      { id: 'lantern', label: 'Lantern', hotkey: 'E', owned: this.inventoryState.lanternCount > 0, count: this.inventoryState.lanternCount },
-      { id: 'flare', label: 'Flare', hotkey: 'F', owned: this.inventoryState.flareCount > 0, count: this.inventoryState.flareCount },
-    ];
-
-    const totalWidth = slots.length * slotSize + (slots.length - 1) * slotGap;
-    const startX = (w - totalWidth) / 2;
-    const startY = h - slotSize - 25;
-
-    // Background panel
-    const panelPadding = 10;
-    const panelBg = new Graphics();
-    panelBg.roundRect(-panelPadding, -panelPadding, totalWidth + panelPadding * 2, slotSize + panelPadding * 2, 8);
-    panelBg.fill({ color: 0x000000, alpha: 0.8 });
-    panelBg.stroke({ color: 0xffaa00, width: 1, alpha: 0.6 });
-    this.hotbarContainer.addChild(panelBg);
-    this.hotbarSlots.push(panelBg as any);
-
-    this.hotbarContainer.x = startX;
-    this.hotbarContainer.y = startY;
-
-    slots.forEach((slotData, index) => {
-      const x = index * (slotSize + slotGap);
-      const slotContainer = new Container();
-      slotContainer.x = x;
-
-      const bg = new Graphics();
-      bg.roundRect(0, 0, slotSize, slotSize, 6);
-
-      if (slotData.active) {
-        bg.fill({ color: 0x1a3a1a, alpha: 0.9 });
-        bg.stroke({ color: 0x66ff66, width: 2 });
-      } else if (!slotData.owned) {
-        bg.fill({ color: 0x111111, alpha: 0.6 });
-        bg.stroke({ color: 0x333333, width: 1 });
-      } else {
-        bg.fill({ color: 0x1a1a1a, alpha: 0.8 });
-        bg.stroke({ color: 0x666666, width: 1 });
-      }
-      slotContainer.addChild(bg);
-
-      // Add weapon sprite if available - 2x bigger
-      const texture = this.loadedTextures.get(slotData.id);
-      if (texture && slotData.owned) {
-        const sprite = new Sprite(texture);
-        sprite.anchor.set(0.5, 0.5);
-        const maxSize = slotSize - 14;
-        const scale = Math.min(maxSize / sprite.width, maxSize / sprite.height) * 1.6;
-        sprite.scale.set(scale);
-        sprite.x = slotSize / 2;
-        sprite.y = slotSize / 2 - 2;
-        sprite.alpha = slotData.active ? 1 : 0.7;
-        slotContainer.addChild(sprite);
-      }
-
-      // Hotkey
-      const hotkeyBg = new Graphics();
-      hotkeyBg.roundRect(2, 2, 16, 14, 3);
-      hotkeyBg.fill({ color: slotData.active ? 0xffaa00 : 0x333333, alpha: 0.9 });
-      slotContainer.addChild(hotkeyBg);
-
-      const hotkeyStyle = new TextStyle({
-        fontFamily: 'Arial Black, sans-serif',
-        fontSize: 9,
-        fill: slotData.active ? 0x000000 : 0xaaaaaa,
-        fontWeight: 'bold',
-      });
-      const hotkeyText = new Text({ text: slotData.hotkey, style: hotkeyStyle });
-      hotkeyText.x = 10;
-      hotkeyText.y = 9;
-      hotkeyText.anchor.set(0.5, 0.5);
-      slotContainer.addChild(hotkeyText);
-
-      // Label
-      const labelStyle = new TextStyle({
-        fontFamily: 'Arial, sans-serif',
-        fontSize: 8,
-        fill: slotData.owned ? 0xffffff : 0x555555,
-        fontWeight: 'bold',
-      });
-      const labelText = new Text({ text: slotData.label, style: labelStyle });
-      labelText.anchor.set(0.5, 1);
-      labelText.x = slotSize / 2;
-      labelText.y = slotSize - 3;
-      slotContainer.addChild(labelText);
-
-      // Count (if applicable)
-      if (slotData.count !== undefined) {
-        const countBg = new Graphics();
-        countBg.roundRect(slotSize - 18, slotSize - 16, 16, 14, 3);
-        countBg.fill({ color: slotData.count > 0 ? 0x227722 : 0x442222, alpha: 0.9 });
-        slotContainer.addChild(countBg);
-
-        const countStyle = new TextStyle({
-          fontFamily: 'Arial Black, sans-serif',
-          fontSize: 10,
-          fill: slotData.count > 0 ? 0x88ff88 : 0x886666,
-          fontWeight: 'bold',
-        });
-        const countText = new Text({ text: `${slotData.count}`, style: countStyle });
-        countText.anchor.set(0.5, 0.5);
-        countText.x = slotSize - 10;
-        countText.y = slotSize - 9;
-        slotContainer.addChild(countText);
-      }
-
-      this.hotbarContainer.addChild(slotContainer);
-      this.hotbarSlots.push(slotContainer);
-    });
-  }
-
-  // Update inventory state when purchases are made
-  updateInventory(inventory: InventoryState): void {
-    this.inventoryState = inventory;
-    this.updateHotbarDisplay();
   }
 
   getUpgrade(id: string): Upgrade | undefined {
