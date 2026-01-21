@@ -4,7 +4,7 @@ export interface HotBarSlot {
   id: string;
   hotkey: string;
   label: string;
-  type: 'weapon' | 'gadget' | 'utility';
+  type: 'weapon' | 'gadget' | 'utility' | 'passive';
   count?: number;
   owned: boolean;
   active?: boolean;
@@ -38,6 +38,24 @@ export class HotBar {
 
       const rifleTexture = await Assets.load('/rifle_sprite.png');
       this.loadedTextures.set('rifle', rifleTexture);
+
+      const shotgunTexture = await Assets.load('/shotgun_sprite.png');
+      this.loadedTextures.set('shotgun', shotgunTexture);
+
+      const gatlingTexture = await Assets.load('/gatling_sprite.png');
+      this.loadedTextures.set('gatling', gatlingTexture);
+
+      const scytheTexture = await Assets.load('/scythe_sprite.png');
+      this.loadedTextures.set('scythe', scytheTexture);
+
+      const lanternTexture = await Assets.load('/lantern_sprite.png');
+      this.loadedTextures.set('lantern', lanternTexture);
+
+      const flareTexture = await Assets.load('/flare_sprite.png');
+      this.loadedTextures.set('flare', flareTexture);
+
+      const teleporterTexture = await Assets.load('/teleporter_sprite.png');
+      this.loadedTextures.set('teleporter', teleporterTexture);
     } catch (e) {
       console.warn('Could not load weapon sprites:', e);
     }
@@ -56,13 +74,15 @@ export class HotBar {
 
     const weapons = slotData.filter(s => s.type === 'weapon');
     const gadgets = slotData.filter(s => s.type === 'gadget');
+    const passives = slotData.filter(s => s.type === 'passive');
     const utilities = slotData.filter(s => s.type === 'utility');
 
     // Calculate total width
     const weaponWidth = weapons.length * this.slotSize + (weapons.length - 1) * this.slotGap;
     const gadgetWidth = gadgets.length * this.slotSize + (gadgets.length - 1) * this.slotGap;
+    const passiveWidth = passives.length * this.slotSize + (passives.length - 1) * this.slotGap;
     const utilityWidth = utilities.length * this.slotSize + (utilities.length - 1) * this.slotGap;
-    const totalWidth = weaponWidth + this.sectionGap + gadgetWidth + this.sectionGap + utilityWidth;
+    const totalWidth = weaponWidth + this.sectionGap + gadgetWidth + this.sectionGap + passiveWidth + this.sectionGap + utilityWidth;
 
     // Position container at bottom center
     const screenWidth = window.innerWidth;
@@ -95,6 +115,16 @@ export class HotBar {
     // Draw gadgets section
     for (let i = 0; i < gadgets.length; i++) {
       const slot = this.createSlot(gadgets[i], xOffset, panelPadding);
+      this.slots.push(slot);
+      this.container.addChild(slot);
+      xOffset += this.slotSize + this.slotGap;
+    }
+
+    xOffset += this.sectionGap - this.slotGap;
+
+    // Draw passives section (scythe, etc.)
+    for (let i = 0; i < passives.length; i++) {
+      const slot = this.createSlot(passives[i], xOffset, panelPadding);
       this.slots.push(slot);
       this.container.addChild(slot);
       xOffset += this.slotSize + this.slotGap;

@@ -21,12 +21,12 @@ import {
   SCYTHE_DAMAGE,
   SCYTHE_ROTATION_SPEED,
   SCYTHE_HIT_COOLDOWN,
+  SCYTHE_RADIUS,
   ZOMBIE_SIZE,
   TILE_SIZE,
-  TORCH_RADIUS,
 } from '@/config/constants';
 
-export type WeaponType = 'pistol' | 'rifle' | 'shotgun' | 'gatling' | 'scythe';
+export type WeaponType = 'pistol' | 'rifle' | 'shotgun' | 'gatling';
 
 interface Bullet {
   x: number;
@@ -78,12 +78,6 @@ const WEAPON_STATS: Record<WeaponType, WeaponStats> = {
     range: GATLING_RANGE,
     bulletColor: 0xff00ff,
   },
-  scythe: {
-    damage: SCYTHE_DAMAGE,
-    fireRate: 0, // Not used - scythe is melee
-    range: 0, // Uses torch radius
-    bulletColor: 0x88ff88,
-  },
 };
 
 export class CombatSystem {
@@ -109,11 +103,11 @@ export class CombatSystem {
   // Floating damage numbers
   private damageNumbers: DamageNumber[] = [];
 
-  // Scythe state
+  // Scythe state (passive melee ability)
+  private hasScythe = false;
   private scytheAngle = 0;
   private scytheGraphics: Graphics | null = null;
   private scytheHitCooldowns: Map<number, number> = new Map(); // zombie id -> cooldown
-  private torchRadiusMultiplier = 1;
 
   constructor(zombieManager: ZombieManager, fogOfWar: FogOfWar, maze: MazeData) {
     this.zombieManager = zombieManager;
@@ -150,12 +144,16 @@ export class CombatSystem {
     this.fireRateMultiplier = mult;
   }
 
-  setTorchRadiusMultiplier(mult: number): void {
-    this.torchRadiusMultiplier = mult;
+  setScytheEnabled(enabled: boolean): void {
+    this.hasScythe = enabled;
+  }
+
+  hasScytheEnabled(): boolean {
+    return this.hasScythe;
   }
 
   private getScytheRadius(): number {
-    return TORCH_RADIUS * this.torchRadiusMultiplier;
+    return SCYTHE_RADIUS;
   }
 
   private getFireInterval(): number {
@@ -168,25 +166,25 @@ export class CombatSystem {
   }
 
   update(dt: number, playerX: number, playerY: number): void {
-    // Handle scythe separately (melee weapon)
-    if (this.currentWeapon === 'scythe') {
+    // Handle scythe as passive melee (always active when owned)
+    if (this.hasScythe) {
       this.updateScythe(dt, playerX, playerY);
     } else {
-      // Hide scythe graphics when not using scythe
+      // Hide scythe graphics when not owned
       if (this.scytheGraphics) {
         this.scytheGraphics.visible = false;
       }
+    }
 
-      // Update fire cooldown
-      this.fireCooldown -= dt;
+    // Handle ranged weapon (gun) - always active alongside scythe
+    this.fireCooldown -= dt;
 
-      // Auto-shoot at nearest VISIBLE zombie in range
-      if (this.fireCooldown <= 0) {
-        const target = this.findNearestVisibleZombie(playerX, playerY);
-        if (target) {
-          this.shoot(playerX, playerY, target);
-          this.fireCooldown = this.getFireInterval();
-        }
+    // Auto-shoot at nearest VISIBLE zombie in range
+    if (this.fireCooldown <= 0) {
+      const target = this.findNearestVisibleZombie(playerX, playerY);
+      if (target) {
+        this.shoot(playerX, playerY, target);
+        this.fireCooldown = this.getFireInterval();
       }
     }
 

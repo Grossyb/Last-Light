@@ -51,6 +51,7 @@ export const GATLING_RANGE = 280;
 export const SCYTHE_DAMAGE = 15;
 export const SCYTHE_ROTATION_SPEED = 3; // rotations per second
 export const SCYTHE_HIT_COOLDOWN = 0.2; // seconds between hits on same zombie
+export const SCYTHE_RADIUS = 35; // tight melee range just around player
 
 // Combat - General
 export const BULLET_SPEED = 600;

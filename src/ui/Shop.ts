@@ -24,7 +24,7 @@ export interface InventoryState {
   hasScythe: boolean;
   lanternCount: number;
   flareCount: number;
-  shovelCount: number;
+  teleporterCount: number;
 }
 
 type PurchaseCallback = (upgrade: Upgrade) => void;
@@ -161,31 +161,52 @@ export class Shop {
 
       const rifleTexture = await Assets.load('/rifle_sprite.png');
       this.loadedTextures.set('rifle', rifleTexture);
+
+      const shotgunTexture = await Assets.load('/shotgun_sprite.png');
+      this.loadedTextures.set('shotgun', shotgunTexture);
+
+      const gatlingTexture = await Assets.load('/gatling_sprite.png');
+      this.loadedTextures.set('gatling', gatlingTexture);
+
+      const scytheTexture = await Assets.load('/scythe_sprite.png');
+      this.loadedTextures.set('scythe', scytheTexture);
+
+      const lanternTexture = await Assets.load('/lantern_sprite.png');
+      this.loadedTextures.set('lantern', lanternTexture);
+
+      const flareTexture = await Assets.load('/flare_sprite.png');
+      this.loadedTextures.set('flare', flareTexture);
+
+      const teleporterTexture = await Assets.load('/teleporter_sprite.png');
+      this.loadedTextures.set('teleporter', teleporterTexture);
+
+      const healthTexture = await Assets.load('/health_sprite.png');
+      this.loadedTextures.set('healthpack', healthTexture);
     } catch (e) {
-      console.warn('Could not load weapon sprites:', e);
+      console.warn('Could not load sprites:', e);
     }
   }
 
   private initializeUpgrades(): void {
     this.upgrades = [
       // Weapons (one-time purchase each)
-      { id: 'rifle', name: 'Assault Rifle', shortName: 'Rifle', description: 'Fast automatic fire', cost: 500, type: 'weapon', maxPurchases: 1, purchased: 0, sprite: 'rifle' },
-      { id: 'shotgun', name: 'Shotgun', shortName: 'Shotgun', description: '5 pellet spread shot', cost: 400, type: 'weapon', maxPurchases: 1, purchased: 0 },
-      { id: 'gatling', name: 'Gatling Gun', shortName: 'Gatling', description: 'Insane fire rate', cost: 1000, type: 'weapon', maxPurchases: 1, purchased: 0 },
-      { id: 'scythe', name: 'Death Scythe', shortName: 'Scythe', description: '360 degree melee', cost: 800, type: 'weapon', maxPurchases: 1, purchased: 0 },
+      { id: 'rifle', name: 'Assault Rifle', shortName: 'AR-15', description: 'Rapid automatic fire', cost: 500, type: 'weapon', maxPurchases: 1, purchased: 0, sprite: 'rifle' },
+      { id: 'shotgun', name: 'Shotgun', shortName: 'Boomstick', description: '5 pellet devastation', cost: 400, type: 'weapon', maxPurchases: 1, purchased: 0, sprite: 'shotgun' },
+      { id: 'gatling', name: 'Gatling Gun', shortName: 'Minigun', description: 'Insane fire rate', cost: 1000, type: 'weapon', maxPurchases: 1, purchased: 0, sprite: 'gatling' },
+      { id: 'scythe', name: 'Death Scythe', shortName: 'Reaper', description: 'Passive 360° melee', cost: 800, type: 'weapon', maxPurchases: 1, purchased: 0, sprite: 'scythe' },
 
       // Permanent upgrades
-      { id: 'firerate', name: 'Fire Rate', shortName: 'Rate', description: '+20% attack speed', cost: 350, type: 'permanent', maxPurchases: 5, purchased: 0 },
-      { id: 'bulletdamage', name: 'Bullet Damage', shortName: 'Damage', description: '+15% damage dealt', cost: 300, type: 'permanent', maxPurchases: 5, purchased: 0 },
-      { id: 'maxhp', name: 'Max Health', shortName: 'HP', description: '+25 max HP', cost: 200, type: 'permanent', maxPurchases: 5, purchased: 0 },
-      { id: 'speed', name: 'Movement Speed', shortName: 'Speed', description: '+15% move speed', cost: 250, type: 'permanent', maxPurchases: 4, purchased: 0 },
-      { id: 'torch', name: 'Torch Radius', shortName: 'Light', description: '+30% vision range', cost: 150, type: 'permanent', maxPurchases: 4, purchased: 0 },
+      { id: 'firerate', name: 'Rapid Fire', shortName: 'Rapid Fire', description: '+20% attack speed', cost: 350, type: 'permanent', maxPurchases: 5, purchased: 0 },
+      { id: 'bulletdamage', name: 'Hollow Points', shortName: 'Damage+', description: '+15% damage dealt', cost: 300, type: 'permanent', maxPurchases: 5, purchased: 0 },
+      { id: 'maxhp', name: 'Vital Boost', shortName: 'Vitality', description: '+25 max HP', cost: 200, type: 'permanent', maxPurchases: 5, purchased: 0 },
+      { id: 'speed', name: 'Adrenaline', shortName: 'Speed+', description: '+15% move speed', cost: 250, type: 'permanent', maxPurchases: 4, purchased: 0 },
+      { id: 'torch', name: 'Bright Torch', shortName: 'Vision+', description: '+30% vision range', cost: 150, type: 'permanent', maxPurchases: 4, purchased: 0 },
 
       // Consumables
-      { id: 'healthpack', name: 'Health Pack', shortName: 'Heal', description: 'Restore 30 HP', cost: 100, type: 'consumable', purchased: 0 },
-      { id: 'lantern', name: 'Lantern', shortName: 'Lantern', description: 'Lure zombies [E]', cost: 150, type: 'consumable', purchased: 0 },
-      { id: 'flare', name: 'Flare Gun', shortName: 'Flare', description: 'Lure zombies [F]', cost: 125, type: 'consumable', purchased: 0 },
-      { id: 'shovel', name: 'Magic Shovel', shortName: 'Shovel', description: 'Dig & teleport [4]', cost: 200, type: 'consumable', purchased: 0 },
+      { id: 'healthpack', name: 'Health Pack', shortName: 'Medkit', description: 'Restore 30 HP', cost: 100, type: 'consumable', purchased: 0, sprite: 'healthpack' },
+      { id: 'lantern', name: 'Decoy Lantern', shortName: 'Lantern', description: 'Lure crawlers [E]', cost: 150, type: 'consumable', purchased: 0, sprite: 'lantern' },
+      { id: 'flare', name: 'Flare Gun', shortName: 'Flare', description: 'Lure crawlers [F]', cost: 125, type: 'consumable', purchased: 0, sprite: 'flare' },
+      { id: 'teleporter', name: 'Teleporter', shortName: 'Warp', description: 'Teleport away [4]', cost: 200, type: 'consumable', purchased: 0, sprite: 'teleporter' },
     ];
   }
 
@@ -446,26 +467,32 @@ export class Shop {
     bg.stroke({ color: borderColor, width: 2, alpha: borderAlpha });
     slot.addChild(bg);
 
-    // Image area - show sprite if available, otherwise placeholder
-    const imgSize = 90;
+    // Image area with nice background
+    const imgSize = 80;
+    const imgPadding = (this.SLOT_SIZE - imgSize) / 2;
+    const imgY = 10;
+
+    // Image container background with rounded corners
+    const imgBg = new Graphics();
+    imgBg.roundRect(imgPadding, imgY, imgSize, imgSize, 8);
+    imgBg.fill({ color: 0x0a0a0a, alpha: 0.8 });
+    imgBg.stroke({ color: available ? 0x444444 : 0x222222, width: 1, alpha: 0.5 });
+    slot.addChild(imgBg);
+
     const texture = upgrade.sprite ? this.loadedTextures.get(upgrade.sprite) : null;
 
     if (texture) {
-      // Show weapon sprite
+      // Show sprite with proper scaling to fit in container
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5, 0.5);
-      const scale = Math.min(imgSize / sprite.width, imgSize / sprite.height) * 1.8;
+      // Scale to fit within the image area with some padding
+      const maxSpriteSize = imgSize - 12;
+      const scale = Math.min(maxSpriteSize / sprite.width, maxSpriteSize / sprite.height);
       sprite.scale.set(scale);
       sprite.x = this.SLOT_SIZE / 2;
-      sprite.y = 8 + imgSize / 2;
+      sprite.y = imgY + imgSize / 2;
       sprite.alpha = available ? 1 : 0.4;
       slot.addChild(sprite);
-    } else {
-      // Image placeholder area
-      const imgArea = new Graphics();
-      imgArea.roundRect((this.SLOT_SIZE - imgSize) / 2, 8, imgSize, imgSize, 6);
-      imgArea.fill({ color: 0x222222, alpha: 0.6 });
-      slot.addChild(imgArea);
     }
 
     // Item name (full name)
@@ -644,7 +671,7 @@ export class Shop {
       { id: 'pistol', label: 'Pistol', hotkey: '1', owned: true, active: this.inventoryState.currentWeapon === 'pistol' },
       { id: 'rifle', label: 'Rifle', hotkey: '2', owned: this.inventoryState.hasRifle, active: this.inventoryState.currentWeapon === 'rifle' },
       { id: 'shotgun', label: 'Shotgun', hotkey: '3', owned: this.inventoryState.hasShotgun, active: this.inventoryState.currentWeapon === 'shotgun' },
-      { id: 'shovel', label: 'Shovel', hotkey: '4', owned: this.inventoryState.shovelCount > 0, count: this.inventoryState.shovelCount },
+      { id: 'teleporter', label: 'Teleporter', hotkey: '4', owned: this.inventoryState.teleporterCount > 0, count: this.inventoryState.teleporterCount },
       { id: 'gatling', label: 'Gatling', hotkey: '5', owned: this.inventoryState.hasGatling, active: this.inventoryState.currentWeapon === 'gatling' },
       { id: 'scythe', label: 'Scythe', hotkey: '6', owned: this.inventoryState.hasScythe, active: this.inventoryState.currentWeapon === 'scythe' },
       { id: 'lantern', label: 'Lantern', hotkey: 'E', owned: this.inventoryState.lanternCount > 0, count: this.inventoryState.lanternCount },

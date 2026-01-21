@@ -43,6 +43,10 @@ export class Game {
   // Player state
   private player: Sprite | null = null;
   private playerTexture: any = null;
+
+  // Additional textures
+  private lanternTexture: any = null;
+  private flareTexture: any = null;
   private playerX = 0;
   private playerY = 0;
   private playerVelX = 0;
@@ -59,14 +63,14 @@ export class Game {
   // Inventory
   private lanternCount = 2;
   private flareCount = 2;
-  private shovelCount = 0;
+  private teleporterCount = 0;
 
-  // Digging state
-  private isDigging = false;
-  private digProgress = 0;
-  private digStartX = 0;
-  private digStartY = 0;
-  private digHoles: { x: number; y: number }[] = [];
+  // Teleporter state
+  private isTeleporting = false;
+  private teleportProgress = 0;
+  private teleportStartX = 0;
+  private teleportStartY = 0;
+  private teleportGraphics: Graphics | null = null;
 
 
   // Economy
@@ -134,14 +138,16 @@ export class Game {
   private lanternGraphics: Graphics | null = null;
   private flareGraphics: Graphics | null = null;
   private flyingFlareGraphics: Graphics | null = null;
+  private lanternSpritesContainer: Container | null = null;
+  private flareSpritesContainer: Container | null = null;
+  private lanternSprites: Sprite[] = [];
+  private flareSprites: Sprite[] = [];
 
   // Torch visual
   private torchLight: Graphics | null = null;
 
-  // Start marker and dig holes visuals
+  // Start marker visual
   private startMarker: Graphics | null = null;
-  private digHolesGraphics: Graphics | null = null;
-  private digProgressGraphics: Graphics | null = null;
 
   // Game state
   private gameOver = false;
@@ -165,8 +171,10 @@ export class Game {
 
     document.body.appendChild(this.app.canvas);
 
-    // Preload player sprite
+    // Preload sprites
     this.playerTexture = await Assets.load('/alien_sprite.png');
+    this.lanternTexture = await Assets.load('/lantern_sprite.png');
+    this.flareTexture = await Assets.load('/flare_sprite.png');
 
     // Remove default margins/padding for true fullscreen
     document.body.style.margin = '0';
@@ -271,10 +279,9 @@ export class Game {
     this.torchMultiplier = 1;
     this.lanternCount = 2;
     this.flareCount = 2;
-    this.shovelCount = 0;
-    this.isDigging = false;
-    this.digProgress = 0;
-    this.digHoles = [];
+    this.teleporterCount = 0;
+    this.isTeleporting = false;
+    this.teleportProgress = 0;
     this.inShop = false;
 
     // Reset combat system
@@ -283,6 +290,7 @@ export class Game {
       this.combatSystem.setWeapon('pistol');
       this.combatSystem.setDamageMultiplier(1);
       this.combatSystem.setFireRateMultiplier(1);
+      this.combatSystem.setScytheEnabled(false);
     }
 
     // Recreate shop to reset purchases
@@ -419,6 +427,15 @@ export class Game {
     this.flyingFlareGraphics = new Graphics();
     this.worldContainer!.addChild(this.flyingFlareGraphics);
 
+    // Create sprite containers for lanterns and flares
+    this.lanternSpritesContainer = new Container();
+    this.worldContainer!.addChild(this.lanternSpritesContainer);
+    this.lanternSprites = [];
+
+    this.flareSpritesContainer = new Container();
+    this.worldContainer!.addChild(this.flareSpritesContainer);
+    this.flareSprites = [];
+
     // Initialize fog of war
     this.fogOfWar = new FogOfWar(this.app, this.maze.width, this.maze.height);
     this.fogOfWar.setTorchRadiusMultiplier(this.torchMultiplier);
@@ -455,7 +472,6 @@ export class Game {
       this.combatSystem.clearBullets();
     }
     this.combatSystem.setDamageMultiplier(this.damageMultiplier);
-    this.combatSystem.setTorchRadiusMultiplier(this.torchMultiplier);
     this.worldContainer!.addChild(this.combatSystem.getContainer());
 
     // Create player at start room
@@ -464,18 +480,13 @@ export class Game {
     // Create start marker (purple dot) at spawn point
     this.createStartMarker();
 
-    // Create dig holes graphics container
-    this.digHolesGraphics = new Graphics();
-    this.worldContainer!.addChild(this.digHolesGraphics);
+    // Create teleport graphics container
+    this.teleportGraphics = new Graphics();
+    this.worldContainer!.addChild(this.teleportGraphics);
 
-    // Create dig progress visual (shows while digging)
-    this.digProgressGraphics = new Graphics();
-    this.worldContainer!.addChild(this.digProgressGraphics);
-
-    // Reset digging state for new level
-    this.isDigging = false;
-    this.digProgress = 0;
-    this.digHoles = [];
+    // Reset teleporting state for new level
+    this.isTeleporting = false;
+    this.teleportProgress = 0;
 
     // Create torch light visual
     this.createTorchLight();
@@ -846,10 +857,9 @@ export class Game {
     this.torchMultiplier = 1;
     this.lanternCount = 2;
     this.flareCount = 2;
-    this.shovelCount = 0;
-    this.isDigging = false;
-    this.digProgress = 0;
-    this.digHoles = [];
+    this.teleporterCount = 0;
+    this.isTeleporting = false;
+    this.teleportProgress = 0;
     this.inShop = false;
     // Game is now active
 
@@ -859,6 +869,7 @@ export class Game {
       this.combatSystem.setWeapon('pistol');
       this.combatSystem.setDamageMultiplier(1);
       this.combatSystem.setFireRateMultiplier(1);
+      this.combatSystem.setScytheEnabled(false);
     }
 
     // Close and recreate shop to reset purchases
@@ -891,7 +902,7 @@ export class Game {
         this.combatSystem?.setWeapon('gatling');
         break;
       case 'scythe':
-        this.combatSystem?.setWeapon('scythe');
+        this.combatSystem?.setScytheEnabled(true);
         break;
       case 'firerate':
         this.fireRateMultiplier += 0.20;
@@ -912,7 +923,6 @@ export class Game {
         this.torchMultiplier += 0.30;
         this.updateTorchGraphics();
         this.fogOfWar?.setTorchRadiusMultiplier(this.torchMultiplier);
-        this.combatSystem?.setTorchRadiusMultiplier(this.torchMultiplier);
         break;
       case 'healthpack':
         this.playerHP = Math.min(this.playerHP + 30, this.playerMaxHP);
@@ -923,8 +933,8 @@ export class Game {
       case 'flare':
         this.flareCount++;
         break;
-      case 'shovel':
-        this.shovelCount++;
+      case 'teleporter':
+        this.teleporterCount++;
         break;
     }
 
@@ -941,7 +951,7 @@ export class Game {
       hasScythe: this.shop?.hasWeapon('scythe') ?? false,
       lanternCount: this.lanternCount,
       flareCount: this.flareCount,
-      shovelCount: this.shovelCount,
+      teleporterCount: this.teleporterCount,
     });
   }
 
@@ -1038,7 +1048,7 @@ export class Game {
         hasScythe: this.shop?.hasWeapon('scythe') ?? false,
         lanternCount: this.lanternCount,
         flareCount: this.flareCount,
-        shovelCount: this.shovelCount,
+        teleporterCount: this.teleporterCount,
       }
     );
   }
@@ -1116,7 +1126,7 @@ export class Game {
       this.hordeTextAnimTime += dt;
     }
 
-    this.updateDigging(dt);
+    this.updateTeleporting(dt);
     this.updatePlayer(dt);
     this.updateCamera();
     this.handleInput();
@@ -1148,8 +1158,8 @@ export class Game {
   }
 
   private updatePlayer(dt: number): void {
-    // Can't move while digging
-    if (this.isDigging) {
+    // Can't move while teleporting
+    if (this.isTeleporting) {
       this.playerVelX = 0;
       this.playerVelY = 0;
       return;
@@ -1276,85 +1286,83 @@ export class Game {
       this.input.consumeKey('Digit5');
       this.combatSystem?.setWeapon('gatling');
     }
-    if (this.input.isKeyDown('Digit6') && this.shop?.hasWeapon('scythe')) {
-      this.input.consumeKey('Digit6');
-      this.combatSystem?.setWeapon('scythe');
-    }
 
-    // Shovel - [4] to start digging
+    // Teleporter - [4] to start teleporting
     if (this.input.isKeyDown('Digit4')) {
       this.input.consumeKey('Digit4');
-      if (this.shovelCount > 0 && !this.isDigging) {
-        this.startDigging();
+      if (this.teleporterCount > 0 && !this.isTeleporting) {
+        this.startTeleporting();
       }
     }
 
   }
 
-  private startDigging(): void {
-    this.isDigging = true;
-    this.digProgress = 0;
-    this.digStartX = this.playerX;
-    this.digStartY = this.playerY;
-    this.shovelCount--;
+  private startTeleporting(): void {
+    this.isTeleporting = true;
+    this.teleportProgress = 0;
+    this.teleportStartX = this.playerX;
+    this.teleportStartY = this.playerY;
+    this.teleporterCount--;
   }
 
-  private updateDigging(dt: number): void {
-    if (!this.isDigging) return;
+  private updateTeleporting(dt: number): void {
+    if (!this.isTeleporting) return;
 
-    this.digProgress += dt;
+    this.teleportProgress += dt;
 
-    // Update dig progress visual (growing circle)
-    if (this.digProgressGraphics) {
-      this.digProgressGraphics.clear();
-      const progress = Math.min(this.digProgress / 2, 1); // 2 seconds to complete
-      const radius = 20 * progress;
-      this.digProgressGraphics.circle(this.digStartX, this.digStartY, radius);
-      this.digProgressGraphics.fill({ color: 0x222222, alpha: 0.8 });
+    // Update teleport visual (light blue glow that grows, similar to gravity bomb)
+    if (this.teleportGraphics) {
+      this.teleportGraphics.clear();
+      const progress = Math.min(this.teleportProgress / 2, 1); // 2 seconds to complete
+
+      // Outer glow (pulsing)
+      const pulseScale = 1 + Math.sin(this.teleportProgress * 10) * 0.1;
+      const outerRadius = 40 * progress * pulseScale;
+      this.teleportGraphics.circle(this.teleportStartX, this.teleportStartY, outerRadius);
+      this.teleportGraphics.fill({ color: 0x44ccff, alpha: 0.15 * progress });
+
+      // Middle ring
+      const middleRadius = 30 * progress;
+      this.teleportGraphics.circle(this.teleportStartX, this.teleportStartY, middleRadius);
+      this.teleportGraphics.fill({ color: 0x66ddff, alpha: 0.25 * progress });
+
+      // Inner core
+      const innerRadius = 15 * progress;
+      this.teleportGraphics.circle(this.teleportStartX, this.teleportStartY, innerRadius);
+      this.teleportGraphics.fill({ color: 0x88eeff, alpha: 0.5 * progress });
+
       // Progress ring
-      this.digProgressGraphics.circle(this.digStartX, this.digStartY, 25);
-      this.digProgressGraphics.stroke({ color: 0x666666, width: 3 });
+      this.teleportGraphics.circle(this.teleportStartX, this.teleportStartY, 35);
+      this.teleportGraphics.stroke({ color: 0x44ccff, width: 2, alpha: 0.6 });
     }
 
-    // Check if digging complete (2 seconds)
-    if (this.digProgress >= 2) {
-      this.completeDigging();
+    // Check if teleporting complete (2 seconds)
+    if (this.teleportProgress >= 2) {
+      this.completeTeleporting();
     }
   }
 
-  private completeDigging(): void {
+  private completeTeleporting(): void {
     if (!this.maze) return;
 
-    // Create black hole at dig location
-    this.digHoles.push({ x: this.digStartX, y: this.digStartY });
-
-    // Clear progress graphics
-    if (this.digProgressGraphics) {
-      this.digProgressGraphics.clear();
+    // Flash effect before teleport
+    if (this.teleportGraphics) {
+      this.teleportGraphics.clear();
+      // Bright flash
+      this.teleportGraphics.circle(this.teleportStartX, this.teleportStartY, 60);
+      this.teleportGraphics.fill({ color: 0xffffff, alpha: 0.8 });
     }
-
-    // Update dig holes visual
-    this.renderDigHoles();
 
     // Teleport player to random floor tile
     this.teleportToRandomLocation();
 
-    this.isDigging = false;
-    this.digProgress = 0;
-  }
-
-  private renderDigHoles(): void {
-    if (!this.digHolesGraphics) return;
-
-    this.digHolesGraphics.clear();
-    for (const hole of this.digHoles) {
-      // Black hole
-      this.digHolesGraphics.circle(hole.x, hole.y, 20);
-      this.digHolesGraphics.fill(0x000000);
-      // Dark edge
-      this.digHolesGraphics.circle(hole.x, hole.y, 20);
-      this.digHolesGraphics.stroke({ color: 0x333333, width: 2 });
+    // Clear graphics after a short delay (handled in render or cleared immediately)
+    if (this.teleportGraphics) {
+      this.teleportGraphics.clear();
     }
+
+    this.isTeleporting = false;
+    this.teleportProgress = 0;
   }
 
   private teleportToRandomLocation(): void {
@@ -1490,22 +1498,66 @@ export class Game {
   private updateLanternAndFlareVisuals(): void {
     if (!this.fogOfWar || !this.lanternGraphics || !this.flareGraphics || !this.flyingFlareGraphics) return;
 
+    const lanterns = this.fogOfWar.getLanterns();
+    const flares = this.fogOfWar.getFlares();
+
+    // Draw lantern glow effects
     this.lanternGraphics.clear();
-    for (const lantern of this.fogOfWar.getLanterns()) {
+    for (const lantern of lanterns) {
       this.lanternGraphics.circle(lantern.x, lantern.y, LANTERN_RADIUS);
       this.lanternGraphics.fill({ color: 0xffaa00, alpha: 0.08 });
-      this.lanternGraphics.circle(lantern.x, lantern.y, 6);
-      this.lanternGraphics.fill(0xffaa00);
     }
 
+    // Update lantern sprites - add new ones or remove old ones as needed
+    while (this.lanternSprites.length < lanterns.length) {
+      const sprite = new Sprite(this.lanternTexture);
+      sprite.anchor.set(0.5, 0.5);
+      const spriteSize = 40;
+      const scale = spriteSize / Math.max(sprite.width, sprite.height);
+      sprite.scale.set(scale);
+      this.lanternSpritesContainer!.addChild(sprite);
+      this.lanternSprites.push(sprite);
+    }
+    while (this.lanternSprites.length > lanterns.length) {
+      const sprite = this.lanternSprites.pop()!;
+      this.lanternSpritesContainer!.removeChild(sprite);
+      sprite.destroy();
+    }
+    // Update lantern sprite positions
+    for (let i = 0; i < lanterns.length; i++) {
+      this.lanternSprites[i].x = lanterns[i].x;
+      this.lanternSprites[i].y = lanterns[i].y;
+    }
+
+    // Draw flare glow effects
     this.flareGraphics.clear();
-    for (const flare of this.fogOfWar.getFlares()) {
+    for (const flare of flares) {
       this.flareGraphics.circle(flare.x, flare.y, FLARE_RADIUS);
       this.flareGraphics.fill({ color: 0xff4400, alpha: 0.08 });
-      this.flareGraphics.circle(flare.x, flare.y, 8);
-      this.flareGraphics.fill(0xff6600);
     }
 
+    // Update flare sprites - add new ones or remove old ones as needed
+    while (this.flareSprites.length < flares.length) {
+      const sprite = new Sprite(this.flareTexture);
+      sprite.anchor.set(0.5, 0.5);
+      const spriteSize = 35;
+      const scale = spriteSize / Math.max(sprite.width, sprite.height);
+      sprite.scale.set(scale);
+      this.flareSpritesContainer!.addChild(sprite);
+      this.flareSprites.push(sprite);
+    }
+    while (this.flareSprites.length > flares.length) {
+      const sprite = this.flareSprites.pop()!;
+      this.flareSpritesContainer!.removeChild(sprite);
+      sprite.destroy();
+    }
+    // Update flare sprite positions
+    for (let i = 0; i < flares.length; i++) {
+      this.flareSprites[i].x = flares[i].x;
+      this.flareSprites[i].y = flares[i].y;
+    }
+
+    // Draw flying flares (still use graphics for these since they move)
     this.flyingFlareGraphics.clear();
     for (const flare of this.fogOfWar.getFlyingFlares()) {
       this.flyingFlareGraphics.circle(flare.x, flare.y, 12);
@@ -1644,10 +1696,10 @@ export class Game {
       this.hpText.y = hpBarY + hpBarHeight / 2;
     }
 
-    // Status text (digging, etc.)
+    // Status text (teleporting, etc.)
     if (this.hudText) {
-      const diggingText = this.isDigging ? `DIGGING... ${(2 - this.digProgress).toFixed(1)}s` : '';
-      this.hudText.text = diggingText;
+      const teleportingText = this.isTeleporting ? `TELEPORTING... ${(2 - this.teleportProgress).toFixed(1)}s` : '';
+      this.hudText.text = teleportingText;
       this.hudText.x = panelX + 12;
       this.hudText.y = panelY + panelHeight + 8;
     }
@@ -1756,12 +1808,12 @@ export class Game {
       },
       // Gadget slots
       {
-        id: 'shovel',
+        id: 'teleporter',
         hotkey: '4',
-        label: 'Shovel',
+        label: 'Teleporter',
         type: 'gadget',
-        count: this.shovelCount,
-        owned: this.shovelCount > 0,
+        count: this.teleporterCount,
+        owned: this.teleporterCount > 0,
       },
       {
         id: 'gatling',
@@ -1775,9 +1827,9 @@ export class Game {
         id: 'scythe',
         hotkey: '6',
         label: 'Scythe',
-        type: 'weapon',
+        type: 'passive',
         owned: this.shop?.hasWeapon('scythe') ?? false,
-        active: currentWeapon === 'scythe',
+        active: this.combatSystem?.hasScytheEnabled() ?? false,
       },
       // Utility slots
       {

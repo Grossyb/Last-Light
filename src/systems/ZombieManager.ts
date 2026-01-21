@@ -1,4 +1,4 @@
-import { Container, Sprite, Texture } from 'pixi.js';
+import { Container, Sprite, Texture, Assets } from 'pixi.js';
 import { MazeData, MazeGenerator } from './MazeGenerator';
 import { FogOfWar } from './FogOfWar';
 import {
@@ -19,6 +19,8 @@ export interface Zombie {
   sprite: Sprite;
   alive: boolean;
   flashTime: number; // Time remaining for hit flash
+  lastDirX: number; // Last movement direction for rotation
+  lastDirY: number;
 }
 
 interface DeathParticle {
@@ -44,7 +46,8 @@ export class ZombieManager {
   private zombieTexture: Texture | null = null;
   private zombieFlashTexture: Texture | null = null;
   private particleTexture: Texture | null = null;
-
+  private crawlerTexture: Texture | null = null;
+  private crawlerLoaded = false;
 
   // Scaling factors
   private hpMultiplier = 1;
@@ -74,6 +77,28 @@ export class ZombieManager {
 
     // Create reusable textures
     this.createTextures();
+
+    // Load crawler sprite asynchronously
+    this.loadCrawlerTexture();
+  }
+
+  private async loadCrawlerTexture(): Promise<void> {
+    try {
+      this.crawlerTexture = await Assets.load('/crawler_sprite.png');
+      this.crawlerLoaded = true;
+      // Update existing zombies to use crawler texture
+      for (const zombie of this.zombies) {
+        if (zombie.alive && this.crawlerTexture) {
+          zombie.sprite.texture = this.crawlerTexture;
+          // Scale sprite to match zombie size
+          const targetSize = ZOMBIE_SIZE * 2.5;
+          const scale = targetSize / Math.max(zombie.sprite.texture.width, zombie.sprite.texture.height);
+          zombie.sprite.scale.set(scale);
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load crawler sprite, using fallback:', e);
+    }
   }
 
   private createTextures(): void {
@@ -134,8 +159,9 @@ export class ZombieManager {
   triggerHordeRush(): void {
     if (this.hordeRushActive) return;
     this.hordeRushActive = true;
-    this.spawnRate = this.baseSpawnRate * 3;
+    this.spawnRate = this.baseSpawnRate * 6; // 6x spawn rate during horde
     this.speedMultiplier *= 1.5;
+    this.maxZombiesAlive = Math.min(800, this.maxZombiesAlive * 2); // Double max zombies
     for (const zombie of this.zombies) {
       if (zombie.alive) {
         zombie.speed *= 1.5;
@@ -185,13 +211,34 @@ export class ZombieManager {
   }
 
   spawnSingleZombie(playerX: number, playerY: number, fogOfWar: FogOfWar): boolean {
-    const maxAttempts = 30;
-    const minSpawnDistance = fogOfWar.getEffectiveTorchRadius() + 20;
+    const maxAttempts = 50; // More attempts during horde for faster spawning
+    const torchRadius = fogOfWar.getEffectiveTorchRadius();
+
+    // During horde mode, spawn much closer to player (just outside torch range)
+    // Normal mode: spawn further away
+    const minSpawnDistance = this.hordeRushActive ? torchRadius + 5 : torchRadius + 20;
+    const maxSpawnDistance = this.hordeRushActive ? torchRadius + 150 : Infinity; // Horde spawns within 150 pixels of torch edge
 
     for (let attempts = 0; attempts < maxAttempts; attempts++) {
-      const tileX = Math.floor(Math.random() * this.maze.width);
-      const tileY = Math.floor(Math.random() * this.maze.height);
+      let tileX: number;
+      let tileY: number;
 
+      if (this.hordeRushActive) {
+        // During horde, bias spawning towards player location
+        const angle = Math.random() * Math.PI * 2;
+        const distance = minSpawnDistance + Math.random() * (maxSpawnDistance - minSpawnDistance);
+        const spawnX = playerX + Math.cos(angle) * distance;
+        const spawnY = playerY + Math.sin(angle) * distance;
+        const tile = MazeGenerator.worldToTile(spawnX, spawnY);
+        tileX = tile.x;
+        tileY = tile.y;
+      } else {
+        // Normal random spawning
+        tileX = Math.floor(Math.random() * this.maze.width);
+        tileY = Math.floor(Math.random() * this.maze.height);
+      }
+
+      if (tileX < 0 || tileX >= this.maze.width || tileY < 0 || tileY >= this.maze.height) continue;
       if (this.maze.tiles[tileY]?.[tileX] !== 0) continue;
       if (fogOfWar.isTileLit(tileX, tileY, playerX, playerY)) continue;
 
@@ -200,6 +247,7 @@ export class ZombieManager {
         (worldPos.x - playerX) ** 2 + (worldPos.y - playerY) ** 2
       );
       if (distToPlayer < minSpawnDistance) continue;
+      if (this.hordeRushActive && distToPlayer > maxSpawnDistance) continue;
 
       this.createZombie(worldPos.x, worldPos.y);
       return true;
@@ -219,6 +267,16 @@ export class ZombieManager {
   }
 
   private createSprite(): Sprite {
+    if (this.crawlerLoaded && this.crawlerTexture) {
+      const sprite = new Sprite(this.crawlerTexture);
+      sprite.anchor.set(0.5, 0.5);
+      // Scale crawler sprite to match zombie size
+      const targetSize = ZOMBIE_SIZE * 2.5;
+      const scale = targetSize / Math.max(sprite.texture.width, sprite.texture.height);
+      sprite.scale.set(scale);
+      return sprite;
+    }
+    // Fallback to circle texture
     const sprite = new Sprite(this.zombieTexture || Texture.WHITE);
     sprite.anchor.set(0.5, 0.5);
     sprite.scale.set(0.5); // Scale down from 2x resolution texture
@@ -254,6 +312,8 @@ export class ZombieManager {
       sprite,
       alive: true,
       flashTime: 0,
+      lastDirX: 0,
+      lastDirY: 1, // Default facing down
     };
 
     this.zombies.push(zombie);
@@ -341,11 +401,12 @@ export class ZombieManager {
     for (const zombie of this.zombies) {
       if (!zombie.alive) continue;
 
-      // Update flash timer
+      // Update flash timer (using tint instead of texture swap)
       if (zombie.flashTime > 0) {
         zombie.flashTime -= dt;
-        if (zombie.flashTime <= 0 && this.zombieTexture) {
-          zombie.sprite.texture = this.zombieTexture;
+        if (zombie.flashTime <= 0) {
+          // Reset tint to normal
+          zombie.sprite.tint = 0xffffff;
         }
       }
 
@@ -402,6 +463,17 @@ export class ZombieManager {
       zombie.sprite.x = zombie.x;
       zombie.sprite.y = zombie.y;
 
+      // Update sprite rotation based on movement direction (like player WASD)
+      // Only update if there's actual movement
+      if (dirX !== 0 || dirY !== 0) {
+        zombie.lastDirX = dirX;
+        zombie.lastDirY = dirY;
+        // Sprite faces down by default (positive Y)
+        // Negate x to flip left/right rotation direction (like player)
+        const targetRotation = Math.atan2(-dirX, dirY);
+        zombie.sprite.rotation = targetRotation;
+      }
+
       // Check collision with player (always check, even if zombie is stationary)
       if (!this.playerInvisible) {
         const playerDist = Math.sqrt(
@@ -450,11 +522,9 @@ export class ZombieManager {
 
     zombie.hp -= damage;
 
-    // Flash effect using texture swap (no redraw!)
-    if (this.zombieFlashTexture) {
-      zombie.sprite.texture = this.zombieFlashTexture;
-      zombie.flashTime = 0.05; // 50ms flash
-    }
+    // Flash effect using tint (works with any texture)
+    zombie.sprite.tint = 0xff6666; // Red tint
+    zombie.flashTime = 0.05; // 50ms flash
 
     if (zombie.hp <= 0) {
       zombie.alive = false;
