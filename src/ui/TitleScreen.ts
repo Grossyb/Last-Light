@@ -24,7 +24,6 @@ export class TitleScreen {
   private controlsText: Text;
   private onStart: StartCallback | null = null;
   private onContinue: ContinueCallback | null = null;
-  private hasSavedGame = false;
 
   constructor() {
     this.container = new Container();
@@ -275,7 +274,6 @@ export class TitleScreen {
   }
 
   showContinueButton(show: boolean): void {
-    this.hasSavedGame = show;
     this.continueButton.visible = show;
   }
 

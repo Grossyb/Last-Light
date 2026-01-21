@@ -4,7 +4,7 @@ import { InputManager } from '@/core/InputManager';
 import { MazeGenerator, MazeData } from '@/systems/MazeGenerator';
 import { FogOfWar } from '@/systems/FogOfWar';
 import { ZombieManager } from '@/systems/ZombieManager';
-import { CombatSystem, WeaponType } from '@/systems/CombatSystem';
+import { CombatSystem } from '@/systems/CombatSystem';
 import { PowerUpSystem, PowerUpType } from '@/systems/PowerUpSystem';
 import { Minimap } from '@/ui/Minimap';
 import { Shop, Upgrade } from '@/ui/Shop';
@@ -14,7 +14,6 @@ import {
   GAME_WIDTH,
   GAME_HEIGHT,
   COLOR_BACKGROUND,
-  COLOR_PLAYER,
   COLOR_WALL,
   COLOR_FLOOR,
   PLAYER_SIZE,
@@ -108,7 +107,6 @@ export class Game {
   private titleScreen: TitleScreen | null = null;
   private hotBar: HotBar | null = null;
   private onTitleScreen = true;
-  private hasActiveGame = false;
 
   // Containers
   private worldContainer: Container | null = null;
@@ -229,7 +227,7 @@ export class Game {
 
   private startNewGame(): void {
     this.onTitleScreen = false;
-    this.hasActiveGame = true;
+    // Game is now active
     this.titleScreen?.hide();
 
     // Show HUD elements
@@ -316,7 +314,7 @@ export class Game {
 
     // Reset game state
     this.gameOver = false;
-    this.hasActiveGame = false;
+    // Game is no longer active
     this.onTitleScreen = true;
 
     // Clear the world
@@ -828,7 +826,7 @@ export class Game {
     this.gravityBombCount = 0;
     this.activeGravityBomb = null;
     this.inShop = false;
-    this.hasActiveGame = true;
+    // Game is now active
 
     // Reset combat system
     if (this.combatSystem) {

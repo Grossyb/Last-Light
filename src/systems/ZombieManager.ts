@@ -5,7 +5,6 @@ import {
   ZOMBIE_BASE_HP,
   ZOMBIE_BASE_SPEED,
   ZOMBIE_SIZE,
-  TILE_SIZE,
   ZOMBIE_DAMAGE_PER_SECOND,
   MAX_ZOMBIES_ALIVE,
 } from '@/config/constants';

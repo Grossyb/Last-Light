@@ -35,7 +35,6 @@ interface FlyingFlare {
 export class FogOfWar {
   private width: number;
   private height: number;
-  private app: Application;
 
   // Visibility tracking: timestamp when tile was last lit (0 = never seen)
   private lastLitTime: number[][];
@@ -62,8 +61,7 @@ export class FogOfWar {
     this.torchRadiusMultiplier = multiplier;
   }
 
-  constructor(app: Application, mazeWidth: number, mazeHeight: number) {
-    this.app = app;
+  constructor(_app: Application, mazeWidth: number, mazeHeight: number) {
     this.width = mazeWidth;
     this.height = mazeHeight;
 

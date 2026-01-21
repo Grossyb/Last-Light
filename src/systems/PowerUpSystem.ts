@@ -1,5 +1,4 @@
 import { Graphics, Container, Text, TextStyle } from 'pixi.js';
-import { TILE_SIZE } from '@/config/constants';
 import { MazeData, MazeGenerator } from './MazeGenerator';
 
 export type PowerUpType = 'ghost' | 'berserker' | 'shield' | 'speedboost' | 'doubledamage';
@@ -302,7 +301,7 @@ export class PowerUpSystem {
 
   private updateEffectsUI(): void {
     let yOffset = 0;
-    for (const [type, text] of this.effectTexts) {
+    for (const [_type, text] of this.effectTexts) {
       text.x = window.innerWidth - 180;
       text.y = 120 + yOffset;
       yOffset += 22;
