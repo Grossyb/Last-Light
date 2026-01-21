@@ -15,9 +15,9 @@ export class HotBar {
   private container: Container;
   private backgroundPanel: Graphics;
   private slots: Container[] = [];
-  private slotSize = 52;
-  private slotGap = 8;
-  private sectionGap = 20;
+  private slotSize = 70;
+  private slotGap = 10;
+  private sectionGap = 24;
   private loadedTextures: Map<string, Texture> = new Map();
 
   constructor() {
@@ -158,26 +158,26 @@ export class HotBar {
 
     // Hotkey label (top-left corner badge)
     const hotkeyBg = new Graphics();
-    hotkeyBg.roundRect(2, 2, 18, 16, 3);
+    hotkeyBg.roundRect(3, 3, 22, 20, 4);
     hotkeyBg.fill({ color: data.active ? 0xffaa00 : 0x333333, alpha: 0.9 });
     slot.addChild(hotkeyBg);
 
     const hotkeyStyle = new TextStyle({
       fontFamily: 'Arial Black, sans-serif',
-      fontSize: 10,
+      fontSize: 13,
       fill: data.active ? 0x000000 : 0xcccccc,
       fontWeight: 'bold',
     });
     const hotkeyText = new Text({ text: data.hotkey, style: hotkeyStyle });
-    hotkeyText.x = 11;
-    hotkeyText.y = 10;
+    hotkeyText.x = 14;
+    hotkeyText.y = 13;
     hotkeyText.anchor.set(0.5, 0.5);
     slot.addChild(hotkeyText);
 
     // Item label (center-bottom)
     const labelStyle = new TextStyle({
       fontFamily: 'Arial, sans-serif',
-      fontSize: 9,
+      fontSize: 11,
       fill: data.owned ? 0xffffff : 0x666666,
       fontWeight: 'bold',
       align: 'center',
@@ -190,26 +190,26 @@ export class HotBar {
     const labelText = new Text({ text: data.label, style: labelStyle });
     labelText.anchor.set(0.5, 1);
     labelText.x = this.slotSize / 2;
-    labelText.y = this.slotSize - 4;
+    labelText.y = this.slotSize - 5;
     slot.addChild(labelText);
 
     // Count (bottom-right) for items with quantities
     if (data.count !== undefined) {
       const countBg = new Graphics();
-      countBg.roundRect(this.slotSize - 20, this.slotSize - 18, 18, 16, 3);
+      countBg.roundRect(this.slotSize - 26, this.slotSize - 22, 24, 20, 4);
       countBg.fill({ color: data.count > 0 ? 0x227722 : 0x442222, alpha: 0.9 });
       slot.addChild(countBg);
 
       const countStyle = new TextStyle({
         fontFamily: 'Arial Black, sans-serif',
-        fontSize: 11,
+        fontSize: 13,
         fill: data.count > 0 ? 0x88ff88 : 0x886666,
         fontWeight: 'bold',
       });
       const countText = new Text({ text: `${data.count}`, style: countStyle });
       countText.anchor.set(0.5, 0.5);
-      countText.x = this.slotSize - 11;
-      countText.y = this.slotSize - 10;
+      countText.x = this.slotSize - 14;
+      countText.y = this.slotSize - 12;
       slot.addChild(countText);
     }
 

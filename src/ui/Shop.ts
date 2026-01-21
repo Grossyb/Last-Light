@@ -59,9 +59,9 @@ export class Shop {
   private playerAtFullHealth = false;
   private inventoryState: InventoryState | null = null;
 
-  // Item slot size
-  private readonly SLOT_SIZE = 90;
-  private readonly SLOT_GAP = 8;
+  // Item slot size (2x larger for visibility)
+  private readonly SLOT_SIZE = 140;
+  private readonly SLOT_GAP = 10;
 
   // Weapon sprites
   private loadedTextures: Map<string, Texture> = new Map();
@@ -263,10 +263,10 @@ export class Shop {
     const h = window.innerHeight;
 
     // Calculate main panel size and position (centered, leaving room for buttons)
-    const panelWidth = 620;
-    const panelHeight = 460;
+    const panelWidth = 800;
+    const panelHeight = 620;
     const panelX = (w - panelWidth) / 2;
-    const panelY = 100;
+    const panelY = 60;
 
     // Dark background - leave top-left corner clear for HUD
     this.background.clear();
@@ -352,9 +352,9 @@ export class Shop {
     const consumables = this.upgrades.filter(u => u.type === 'consumable');
 
     // Calculate panel position (must match open() dimensions)
-    const panelWidth = 620;
+    const panelWidth = 800;
     const panelX = (w - panelWidth) / 2;
-    const panelY = 100;
+    const panelY = 60;
 
     let currentY = panelY + 85;
 
@@ -447,23 +447,23 @@ export class Shop {
     slot.addChild(bg);
 
     // Image area - show sprite if available, otherwise placeholder
-    const imgSize = 60;
+    const imgSize = 90;
     const texture = upgrade.sprite ? this.loadedTextures.get(upgrade.sprite) : null;
 
     if (texture) {
-      // Show weapon sprite - 2x bigger
+      // Show weapon sprite
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5, 0.5);
       const scale = Math.min(imgSize / sprite.width, imgSize / sprite.height) * 1.8;
       sprite.scale.set(scale);
       sprite.x = this.SLOT_SIZE / 2;
-      sprite.y = 6 + imgSize / 2;
+      sprite.y = 8 + imgSize / 2;
       sprite.alpha = available ? 1 : 0.4;
       slot.addChild(sprite);
     } else {
       // Image placeholder area
       const imgArea = new Graphics();
-      imgArea.roundRect((this.SLOT_SIZE - imgSize) / 2, 6, imgSize, imgSize, 6);
+      imgArea.roundRect((this.SLOT_SIZE - imgSize) / 2, 8, imgSize, imgSize, 6);
       imgArea.fill({ color: 0x222222, alpha: 0.6 });
       slot.addChild(imgArea);
     }
@@ -471,7 +471,7 @@ export class Shop {
     // Item name (full name)
     const nameStyle = new TextStyle({
       fontFamily: 'Arial Black, sans-serif',
-      fontSize: 10,
+      fontSize: 13,
       fill: available ? 0xffffff : 0x666666,
       fontWeight: 'bold',
       align: 'center',
@@ -479,13 +479,13 @@ export class Shop {
     const nameText = new Text({ text: upgrade.shortName, style: nameStyle });
     nameText.anchor.set(0.5, 0);
     nameText.x = this.SLOT_SIZE / 2;
-    nameText.y = 62;
+    nameText.y = 100;
     slot.addChild(nameText);
 
     // Description
     const descStyle = new TextStyle({
       fontFamily: 'Arial, sans-serif',
-      fontSize: 8,
+      fontSize: 11,
       fill: available ? 0xaaaaaa : 0x555555,
       align: 'center',
       wordWrap: true,
@@ -494,13 +494,13 @@ export class Shop {
     const descText = new Text({ text: upgrade.description, style: descStyle });
     descText.anchor.set(0.5, 0);
     descText.x = this.SLOT_SIZE / 2;
-    descText.y = 76;
+    descText.y = 116;
     slot.addChild(descText);
 
     // Cost badge (top-right)
-    const costBadgeWidth = 40;
+    const costBadgeWidth = 50;
     const costBg = new Graphics();
-    costBg.roundRect(this.SLOT_SIZE - costBadgeWidth - 4, 4, costBadgeWidth, 16, 4);
+    costBg.roundRect(this.SLOT_SIZE - costBadgeWidth - 6, 6, costBadgeWidth, 22, 4);
 
     if (maxedOut) {
       costBg.fill({ color: 0x227722, alpha: 0.95 });
@@ -513,33 +513,33 @@ export class Shop {
 
     const costStyle = new TextStyle({
       fontFamily: 'Arial Black, sans-serif',
-      fontSize: 10,
+      fontSize: 13,
       fill: available || maxedOut || fullHealth ? 0xffffff : 0x666666,
       fontWeight: 'bold',
     });
     const costLabel = maxedOut ? 'MAX' : (fullHealth ? 'FULL' : `${upgrade.cost}`);
     const costText = new Text({ text: costLabel, style: costStyle });
     costText.anchor.set(0.5, 0.5);
-    costText.x = this.SLOT_SIZE - costBadgeWidth / 2 - 4;
-    costText.y = 12;
+    costText.x = this.SLOT_SIZE - costBadgeWidth / 2 - 6;
+    costText.y = 17;
     slot.addChild(costText);
 
     // Purchase count for limited upgrades (top-left)
     if (upgrade.maxPurchases !== undefined && upgrade.maxPurchases > 1) {
       const countBg = new Graphics();
-      countBg.roundRect(4, 4, 28, 16, 4);
+      countBg.roundRect(6, 6, 36, 22, 4);
       countBg.fill({ color: 0x333333, alpha: 0.95 });
       slot.addChild(countBg);
 
       const countStyle = new TextStyle({
         fontFamily: 'Arial, sans-serif',
-        fontSize: 10,
+        fontSize: 13,
         fill: upgrade.purchased > 0 ? 0x88ff88 : 0x888888,
         fontWeight: 'bold',
       });
       const countText = new Text({ text: `${upgrade.purchased}/${upgrade.maxPurchases}`, style: countStyle });
-      countText.x = 18;
-      countText.y = 12;
+      countText.x = 24;
+      countText.y = 17;
       countText.anchor.set(0.5, 0.5);
       slot.addChild(countText);
     }

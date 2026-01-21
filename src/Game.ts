@@ -117,6 +117,7 @@ export class Game {
   private timerPanel: Graphics | null = null;
   private timerText: Text | null = null;
   private parText: Text | null = null;
+  private attractionTimerText: Text | null = null;
   private damageFlash: Graphics | null = null;
   private damageFlashAlpha = 0;
 
@@ -720,6 +721,19 @@ export class Game {
     this.parText = new Text({ text: 'Par: 0:00', style: parStyle });
     this.parText.anchor.set(0.5, 0.5);
     this.uiContainer.addChild(this.parText);
+
+    // Attraction timer (shows when lantern/flare is active)
+    const attractionStyle = new TextStyle({
+      fontFamily: 'Arial Black, sans-serif',
+      fontSize: 16,
+      fill: 0xff8844,
+      fontWeight: 'bold',
+      dropShadow: { color: 0x000000, blur: 3, distance: 1 },
+    });
+    this.attractionTimerText = new Text({ text: '', style: attractionStyle });
+    this.attractionTimerText.anchor.set(1, 0); // Right-aligned
+    this.attractionTimerText.visible = false;
+    this.uiContainer.addChild(this.attractionTimerText);
   }
 
   private createDamageFlash(): void {
@@ -994,6 +1008,8 @@ export class Game {
     if (this.parText) this.parText.visible = false;
     // Hide points from HUD since shop shows points
     if (this.hudPointsText) this.hudPointsText.visible = false;
+    // Hide horde text when level is complete
+    if (this.hudHordeText) this.hudHordeText.visible = false;
 
     // Get current weapon for shop hotbar display
     const currentWeapon = this.combatSystem?.getWeapon() ?? 'pistol';
@@ -1580,7 +1596,7 @@ export class Game {
 
     // HP text
     if (this.hpText) {
-      this.hpText.text = `${this.playerHP} / ${this.playerMaxHP}`;
+      this.hpText.text = `${Math.floor(this.playerHP)} / ${Math.floor(this.playerMaxHP)}`;
       this.hpText.x = hpBarX + hpBarWidth / 2;
       this.hpText.y = hpBarY + hpBarHeight / 2;
     }
@@ -1623,6 +1639,30 @@ export class Game {
       this.parText.text = parStr;
       this.parText.x = window.innerWidth / 2;
       this.parText.y = timerPanelY + 43;
+    }
+
+    // === ATTRACTION TIMER (right side, below power-ups) ===
+    if (this.attractionTimerText && this.fogOfWar) {
+      const attraction = this.fogOfWar.getAttractionPoint();
+      if (attraction) {
+        this.attractionTimerText.visible = true;
+        const timeLeft = attraction.timeRemaining.toFixed(1);
+        this.attractionTimerText.text = `🔥 LURE: ${timeLeft}s`;
+        this.attractionTimerText.x = window.innerWidth - 20;
+        this.attractionTimerText.y = 160; // Below power-up effects area
+
+        // Change color as time runs out
+        const ratio = attraction.timeRemaining / attraction.maxTime;
+        if (ratio > 0.5) {
+          this.attractionTimerText.style.fill = 0xff8844; // Orange
+        } else if (ratio > 0.25) {
+          this.attractionTimerText.style.fill = 0xffaa00; // Yellow-orange
+        } else {
+          this.attractionTimerText.style.fill = 0xff4444; // Red (fading)
+        }
+      } else {
+        this.attractionTimerText.visible = false;
+      }
     }
 
     // Update hotbar

@@ -15,6 +15,7 @@ interface Lantern {
   tileX: number;
   tileY: number;
   attractionTimeRemaining: number; // Seconds remaining for zombie attraction
+  maxAttractionTime: number; // Initial duration (for calculating dim ratio)
 }
 
 interface Flare {
@@ -23,6 +24,7 @@ interface Flare {
   tileX: number;
   tileY: number;
   attractionTimeRemaining: number; // Seconds remaining for zombie attraction
+  maxAttractionTime: number; // Initial duration (for calculating dim ratio)
 }
 
 // Attraction durations (seconds)
@@ -101,14 +103,18 @@ export class FogOfWar {
     // Light tiles around player (torch) - apply multiplier for upgrades
     this.lightTilesInRadius(playerX, playerY, TORCH_RADIUS * this.torchRadiusMultiplier, false);
 
-    // Light tiles around lanterns (permanent)
+    // Light tiles around lanterns (dims over time as attraction fades)
     for (const lantern of this.lanterns) {
-      this.lightTilesInRadius(lantern.x, lantern.y, LANTERN_RADIUS, true);
+      const dimRatio = lantern.attractionTimeRemaining / lantern.maxAttractionTime;
+      const dimmedRadius = LANTERN_RADIUS * Math.max(0.2, dimRatio); // Min 20% radius
+      this.lightTilesInRadius(lantern.x, lantern.y, dimmedRadius, true);
     }
 
-    // Light tiles around flares (permanent)
+    // Light tiles around flares (dims over time as attraction fades)
     for (const flare of this.flares) {
-      this.lightTilesInRadius(flare.x, flare.y, FLARE_RADIUS, true);
+      const dimRatio = flare.attractionTimeRemaining / flare.maxAttractionTime;
+      const dimmedRadius = FLARE_RADIUS * Math.max(0.2, dimRatio); // Min 20% radius
+      this.lightTilesInRadius(flare.x, flare.y, dimmedRadius, true);
     }
 
     // Render fog
@@ -179,6 +185,7 @@ export class FogOfWar {
       tileX: tile.x,
       tileY: tile.y,
       attractionTimeRemaining: FLARE_ATTRACTION_DURATION,
+      maxAttractionTime: FLARE_ATTRACTION_DURATION,
     });
   }
 
@@ -282,6 +289,7 @@ export class FogOfWar {
       tileX: tile.x,
       tileY: tile.y,
       attractionTimeRemaining: LANTERN_ATTRACTION_DURATION,
+      maxAttractionTime: LANTERN_ATTRACTION_DURATION,
     });
   }
 
@@ -359,29 +367,43 @@ export class FogOfWar {
   }
 
   // Update attraction timers for lanterns and flares
+  // Removes expired light sources
   updateAttractionTimers(dt: number): void {
-    for (const lantern of this.lanterns) {
+    // Update lanterns and remove expired ones
+    for (let i = this.lanterns.length - 1; i >= 0; i--) {
+      const lantern = this.lanterns[i];
       if (lantern.attractionTimeRemaining > 0) {
         lantern.attractionTimeRemaining -= dt;
+        if (lantern.attractionTimeRemaining <= 0) {
+          // Lantern has fully dimmed - remove it
+          this.lanterns.splice(i, 1);
+        }
       }
     }
-    for (const flare of this.flares) {
+
+    // Update flares and remove expired ones
+    for (let i = this.flares.length - 1; i >= 0; i--) {
+      const flare = this.flares[i];
       if (flare.attractionTimeRemaining > 0) {
         flare.attractionTimeRemaining -= dt;
+        if (flare.attractionTimeRemaining <= 0) {
+          // Flare has fully dimmed - remove it
+          this.flares.splice(i, 1);
+        }
       }
     }
   }
 
   // Get the current attraction point (most recent light source still attracting)
   // Returns the light source with the most attraction time remaining, or null if none
-  getAttractionPoint(): { x: number; y: number } | null {
-    let bestAttraction: { x: number; y: number; time: number } | null = null;
+  getAttractionPoint(): { x: number; y: number; timeRemaining: number; maxTime: number } | null {
+    let bestAttraction: { x: number; y: number; time: number; maxTime: number } | null = null;
 
     // Check lanterns
     for (const lantern of this.lanterns) {
       if (lantern.attractionTimeRemaining > 0) {
         if (!bestAttraction || lantern.attractionTimeRemaining > bestAttraction.time) {
-          bestAttraction = { x: lantern.x, y: lantern.y, time: lantern.attractionTimeRemaining };
+          bestAttraction = { x: lantern.x, y: lantern.y, time: lantern.attractionTimeRemaining, maxTime: lantern.maxAttractionTime };
         }
       }
     }
@@ -390,12 +412,12 @@ export class FogOfWar {
     for (const flare of this.flares) {
       if (flare.attractionTimeRemaining > 0) {
         if (!bestAttraction || flare.attractionTimeRemaining > bestAttraction.time) {
-          bestAttraction = { x: flare.x, y: flare.y, time: flare.attractionTimeRemaining };
+          bestAttraction = { x: flare.x, y: flare.y, time: flare.attractionTimeRemaining, maxTime: flare.maxAttractionTime };
         }
       }
     }
 
-    return bestAttraction ? { x: bestAttraction.x, y: bestAttraction.y } : null;
+    return bestAttraction ? { x: bestAttraction.x, y: bestAttraction.y, timeRemaining: bestAttraction.time, maxTime: bestAttraction.maxTime } : null;
   }
 
   // Check if any light source is currently attracting zombies

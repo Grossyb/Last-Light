@@ -221,6 +221,7 @@ export class ZombieManager {
   private createSprite(): Sprite {
     const sprite = new Sprite(this.zombieTexture || Texture.WHITE);
     sprite.anchor.set(0.5, 0.5);
+    sprite.scale.set(0.5); // Scale down from 2x resolution texture
     return sprite;
   }
 
@@ -370,10 +371,12 @@ export class ZombieManager {
         const dy = targetY - zombie.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist < 1) continue;
-
-        dirX = dx / dist;
-        dirY = dy / dist;
+        // Only move if not already at target (but don't skip damage check!)
+        if (dist >= 1) {
+          dirX = dx / dist;
+          dirY = dy / dist;
+        }
+        // If dist < 1, zombie stays in place (dirX/dirY remain 0)
       }
 
       const moveX = dirX * zombie.speed * dt;
@@ -399,14 +402,14 @@ export class ZombieManager {
       zombie.sprite.x = zombie.x;
       zombie.sprite.y = zombie.y;
 
-      // Check collision with player
+      // Check collision with player (always check, even if zombie is stationary)
       if (!this.playerInvisible) {
         const playerDist = Math.sqrt(
           (zombie.x - playerX) ** 2 + (zombie.y - playerY) ** 2
         );
         const collisionDist = ZOMBIE_SIZE / 2 + 12;
 
-        if (playerDist < collisionDist) {
+        if (playerDist <= collisionDist) {
           damageToPlayer += ZOMBIE_DAMAGE_PER_SECOND * dt;
         }
       }

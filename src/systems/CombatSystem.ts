@@ -338,9 +338,8 @@ export class CombatSystem {
     const dy = target.y - playerY;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (dist < 1) return;
-
-    const baseAngle = Math.atan2(dy, dx);
+    // If zombie is at exact player position, pick a random direction
+    const baseAngle = dist < 1 ? Math.random() * Math.PI * 2 : Math.atan2(dy, dx);
     const stats = WEAPON_STATS[this.currentWeapon];
 
     if (this.currentWeapon === 'shotgun') {
