@@ -126,6 +126,10 @@ export class Game {
   private totalTime = 0;
   private parTime = 30; // Base par time in seconds
 
+  // Horde mode state
+  private hordeTriggeredThisLevel = false;
+  private hordeTextAnimTime = 0; // Animation timer for horde text
+
   // Lantern/flare visuals in world
   private lanternGraphics: Graphics | null = null;
   private flareGraphics: Graphics | null = null;
@@ -250,6 +254,8 @@ export class Game {
     // Reset timer
     this.totalTime = 0;
     this.levelTime = 0;
+    this.hordeTriggeredThisLevel = false;
+    this.hordeTextAnimTime = 0;
 
     // Reset everything for a fresh start
     this.gameOver = false;
@@ -380,8 +386,10 @@ export class Game {
 
     // Reset level timer and calculate par time (scales with map size)
     this.levelTime = 0;
+    this.hordeTriggeredThisLevel = false;
+    this.hordeTextAnimTime = 0;
     const mapSize = this.getMapSize(level);
-    this.parTime = 20 + mapSize; // Par time increases with map size
+    this.parTime = 5 + mapSize; // Time until horde (30s for level 1, scales with map size)
 
     // Clear old world objects
     if (this.worldContainer) {
@@ -718,7 +726,7 @@ export class Game {
       fill: 0x888888,
       dropShadow: { color: 0x000000, blur: 2, distance: 1 },
     });
-    this.parText = new Text({ text: 'Par: 0:00', style: parStyle });
+    this.parText = new Text({ text: 'HORDE IN: 0:00', style: parStyle });
     this.parText.anchor.set(0.5, 0.5);
     this.uiContainer.addChild(this.parText);
 
@@ -989,10 +997,10 @@ export class Game {
     this.points += mapSize;
     this.cumulativePoints += mapSize;
 
-    // Time bonus: extra points for finishing under par
+    // Time bonus: extra points for escaping before horde arrives
     if (this.levelTime < this.parTime) {
-      const timeUnderPar = this.parTime - this.levelTime;
-      const timeBonus = Math.floor(timeUnderPar * 2); // 2 points per second under par
+      const timeBeforeHorde = this.parTime - this.levelTime;
+      const timeBonus = Math.floor(timeBeforeHorde * 2); // 2 points per second early
       this.points += timeBonus;
       this.cumulativePoints += timeBonus;
     }
@@ -1092,6 +1100,18 @@ export class Game {
 
     // Update level timer
     this.levelTime += dt;
+
+    // Trigger horde mode when par time is exceeded
+    if (!this.hordeTriggeredThisLevel && this.levelTime >= this.parTime) {
+      this.hordeTriggeredThisLevel = true;
+      this.hordeTextAnimTime = 0;
+      this.zombieManager?.triggerHordeRush();
+    }
+
+    // Update horde text animation
+    if (this.hordeTriggeredThisLevel) {
+      this.hordeTextAnimTime += dt;
+    }
 
     this.updateDigging(dt);
     this.updatePlayer(dt);
@@ -1500,8 +1520,6 @@ export class Game {
 
     if (this.fogOfWar.isTileVisible(exitTileX, exitTileY, this.playerX, this.playerY)) {
       this.exitDiscovered = true;
-      // Trigger horde rush - zombies flood in when exit is found!
-      this.zombieManager?.triggerHordeRush();
     }
   }
 
@@ -1530,6 +1548,12 @@ export class Game {
 
     const zombieCount = this.zombieManager?.getAliveCount() ?? 0;
     const isHordeActive = this.zombieManager?.isHordeRushActive() ?? false;
+
+    // === TIMER PANEL DIMENSIONS (needed early for horde text positioning) ===
+    const timerPanelWidth = 140;
+    const timerPanelHeight = 55;
+    const timerPanelX = window.innerWidth / 2 - timerPanelWidth / 2;
+    const timerPanelY = 10;
 
     // === LEFT PANEL ===
     const panelX = 10;
@@ -1565,13 +1589,29 @@ export class Game {
       this.hudPointsText.anchor.set(1, 0);
     }
 
-    // Horde warning
+    // Horde warning - positioned under timer panel with animation
     if (this.hudHordeText) {
-      this.hudHordeText.visible = isHordeActive;
-      if (isHordeActive) {
-        this.hudHordeText.x = panelX + panelWidth / 2;
-        this.hudHordeText.y = panelY + panelHeight + 8;
+      this.hudHordeText.visible = isHordeActive && !this.inShop;
+      if (isHordeActive && !this.inShop) {
+        // Position under timer panel (center)
+        this.hudHordeText.x = window.innerWidth / 2;
+        this.hudHordeText.y = timerPanelY + timerPanelHeight + 8;
         this.hudHordeText.anchor.set(0.5, 0);
+
+        // Animate in: scale from 0 to 1 over 0.3s, then pulse
+        const animTime = this.hordeTextAnimTime;
+        if (animTime < 0.3) {
+          // Scale in animation
+          const t = animTime / 0.3;
+          const scale = t * t * (3 - 2 * t); // Smooth ease-in-out
+          this.hudHordeText.scale.set(scale);
+          this.hudHordeText.alpha = scale;
+        } else {
+          // Pulsing effect after initial animation
+          const pulse = 1 + Math.sin((animTime - 0.3) * 6) * 0.1;
+          this.hudHordeText.scale.set(pulse);
+          this.hudHordeText.alpha = 1;
+        }
       }
     }
 
@@ -1606,15 +1646,10 @@ export class Game {
       const diggingText = this.isDigging ? `DIGGING... ${(2 - this.digProgress).toFixed(1)}s` : '';
       this.hudText.text = diggingText;
       this.hudText.x = panelX + 12;
-      this.hudText.y = panelY + panelHeight + (isHordeActive ? 28 : 8);
+      this.hudText.y = panelY + panelHeight + 8;
     }
 
     // === CENTER PANEL (Timer) ===
-    const timerPanelWidth = 140;
-    const timerPanelHeight = 55;
-    const timerPanelX = window.innerWidth / 2 - timerPanelWidth / 2;
-    const timerPanelY = 10;
-
     this.timerPanel?.clear();
     this.timerPanel?.roundRect(timerPanelX, timerPanelY, timerPanelWidth, timerPanelHeight, 8);
     this.timerPanel?.fill({ color: 0x000000, alpha: 0.7 });
@@ -1633,10 +1668,26 @@ export class Game {
     }
 
     if (this.parText) {
-      const parMinutes = Math.floor(this.parTime / 60);
-      const parSeconds = Math.floor(this.parTime % 60);
-      const parStr = `Par: ${parMinutes}:${parSeconds.toString().padStart(2, '0')}`;
-      this.parText.text = parStr;
+      // Show countdown to horde, hide once horde is active
+      if (isHordeActive) {
+        this.parText.visible = false;
+      } else {
+        this.parText.visible = true;
+        const timeRemaining = Math.max(0, this.parTime - this.levelTime);
+        const remainMinutes = Math.floor(timeRemaining / 60);
+        const remainSeconds = Math.floor(timeRemaining % 60);
+        const countdownStr = `HORDE IN: ${remainMinutes}:${remainSeconds.toString().padStart(2, '0')}`;
+        this.parText.text = countdownStr;
+
+        // Color changes as time runs out
+        if (timeRemaining > 15) {
+          this.parText.style.fill = 0x888888;
+        } else if (timeRemaining > 5) {
+          this.parText.style.fill = 0xffaa44;
+        } else {
+          this.parText.style.fill = 0xff4444;
+        }
+      }
       this.parText.x = window.innerWidth / 2;
       this.parText.y = timerPanelY + 43;
     }
