@@ -389,7 +389,10 @@ export class Game {
     this.hordeTriggeredThisLevel = false;
     this.hordeTextAnimTime = 0;
     const mapSize = this.getMapSize(level);
-    this.parTime = 5 + mapSize; // Time until horde (30s for level 1, scales with map size)
+    // Curved time formula: bigger maps get proportionally more time
+    // Level 1 (25): 30s, Level 8 (60): 100s
+    const sizeDiff = mapSize - 25;
+    this.parTime = Math.floor(30 + sizeDiff * (1 + sizeDiff / 35));
 
     // Clear old world objects
     if (this.worldContainer) {
@@ -1581,11 +1584,11 @@ export class Game {
       this.hudZombieText.y = panelY + 34;
     }
 
-    // Points
+    // Points (second row, right side)
     if (this.hudPointsText) {
       this.hudPointsText.text = `${this.points} PTS`;
       this.hudPointsText.x = panelX + panelWidth - 12;
-      this.hudPointsText.y = panelY + 8;
+      this.hudPointsText.y = panelY + 34;
       this.hudPointsText.anchor.set(1, 0);
     }
 
