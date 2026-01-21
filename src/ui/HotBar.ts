@@ -1,4 +1,4 @@
-import { Graphics, Container, Text, TextStyle } from 'pixi.js';
+import { Graphics, Container, Text, TextStyle, Sprite, Assets, Texture } from 'pixi.js';
 
 export interface HotBarSlot {
   id: string;
@@ -8,6 +8,7 @@ export interface HotBarSlot {
   count?: number;
   owned: boolean;
   active?: boolean;
+  sprite?: string; // Path to sprite image
 }
 
 export class HotBar {
@@ -17,6 +18,7 @@ export class HotBar {
   private slotSize = 52;
   private slotGap = 8;
   private sectionGap = 20;
+  private loadedTextures: Map<string, Texture> = new Map();
 
   constructor() {
     this.container = new Container();
@@ -24,6 +26,21 @@ export class HotBar {
     // Background panel
     this.backgroundPanel = new Graphics();
     this.container.addChild(this.backgroundPanel);
+
+    // Preload weapon sprites
+    this.preloadSprites();
+  }
+
+  private async preloadSprites(): Promise<void> {
+    try {
+      const pistolTexture = await Assets.load('/pistol_sprite.png');
+      this.loadedTextures.set('pistol', pistolTexture);
+
+      const rifleTexture = await Assets.load('/rifle_sprite.png');
+      this.loadedTextures.set('rifle', rifleTexture);
+    } catch (e) {
+      console.warn('Could not load weapon sprites:', e);
+    }
   }
 
   getContainer(): Container {
@@ -123,6 +140,21 @@ export class HotBar {
 
     bg.stroke({ color: borderColor, width: 2, alpha: borderAlpha });
     slot.addChild(bg);
+
+    // Add weapon sprite if available
+    const texture = this.loadedTextures.get(data.id);
+    if (texture && data.owned) {
+      const sprite = new Sprite(texture);
+      sprite.anchor.set(0.5, 0.5);
+      // Scale sprite to fit in slot - 2x bigger
+      const maxSize = this.slotSize - 16;
+      const scale = Math.min(maxSize / sprite.width, maxSize / sprite.height) * 1.6;
+      sprite.scale.set(scale);
+      sprite.x = this.slotSize / 2;
+      sprite.y = this.slotSize / 2 - 2;
+      sprite.alpha = data.active ? 1 : 0.7;
+      slot.addChild(sprite);
+    }
 
     // Hotkey label (top-left corner badge)
     const hotkeyBg = new Graphics();

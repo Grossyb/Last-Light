@@ -14,6 +14,7 @@ interface Lantern {
   y: number;
   tileX: number;
   tileY: number;
+  attractionTimeRemaining: number; // Seconds remaining for zombie attraction
 }
 
 interface Flare {
@@ -21,7 +22,12 @@ interface Flare {
   y: number;
   tileX: number;
   tileY: number;
+  attractionTimeRemaining: number; // Seconds remaining for zombie attraction
 }
+
+// Attraction durations (seconds)
+const LANTERN_ATTRACTION_DURATION = 6;
+const FLARE_ATTRACTION_DURATION = 10;
 
 interface FlyingFlare {
   x: number;
@@ -172,6 +178,7 @@ export class FogOfWar {
       y,
       tileX: tile.x,
       tileY: tile.y,
+      attractionTimeRemaining: FLARE_ATTRACTION_DURATION,
     });
   }
 
@@ -254,11 +261,11 @@ export class FogOfWar {
 
     const tileWorldPos = MazeGenerator.tileToWorld(tileX, tileY);
 
-    // Check if currently lit by torch
+    // Check if currently lit by torch (apply multiplier for upgrades)
     const distToPlayer = Math.sqrt(
       (tileWorldPos.x - playerX) ** 2 + (tileWorldPos.y - playerY) ** 2
     );
-    if (distToPlayer <= TORCH_RADIUS) return 1;
+    if (distToPlayer <= TORCH_RADIUS * this.torchRadiusMultiplier) return 1;
 
     // Calculate fog creep - visibility fades from 1 to 0 over FOG_CREEP_SPEED
     const timeSinceLit = this.currentTime - lastLit;
@@ -274,6 +281,7 @@ export class FogOfWar {
       y: worldY,
       tileX: tile.x,
       tileY: tile.y,
+      attractionTimeRemaining: LANTERN_ATTRACTION_DURATION,
     });
   }
 
@@ -328,6 +336,11 @@ export class FogOfWar {
     return this.getTileVisibility(tileX, tileY, playerX, playerY) === 1;
   }
 
+  // Get the current effective torch radius (for spawn distance checks)
+  getEffectiveTorchRadius(): number {
+    return TORCH_RADIUS * this.torchRadiusMultiplier;
+  }
+
   // Get permanently revealed tiles for minimap
   getPermanentlyLitTiles(): boolean[][] {
     return this.permanentlyLit;
@@ -343,5 +356,50 @@ export class FogOfWar {
       }
     }
     return visibility;
+  }
+
+  // Update attraction timers for lanterns and flares
+  updateAttractionTimers(dt: number): void {
+    for (const lantern of this.lanterns) {
+      if (lantern.attractionTimeRemaining > 0) {
+        lantern.attractionTimeRemaining -= dt;
+      }
+    }
+    for (const flare of this.flares) {
+      if (flare.attractionTimeRemaining > 0) {
+        flare.attractionTimeRemaining -= dt;
+      }
+    }
+  }
+
+  // Get the current attraction point (most recent light source still attracting)
+  // Returns the light source with the most attraction time remaining, or null if none
+  getAttractionPoint(): { x: number; y: number } | null {
+    let bestAttraction: { x: number; y: number; time: number } | null = null;
+
+    // Check lanterns
+    for (const lantern of this.lanterns) {
+      if (lantern.attractionTimeRemaining > 0) {
+        if (!bestAttraction || lantern.attractionTimeRemaining > bestAttraction.time) {
+          bestAttraction = { x: lantern.x, y: lantern.y, time: lantern.attractionTimeRemaining };
+        }
+      }
+    }
+
+    // Check flares
+    for (const flare of this.flares) {
+      if (flare.attractionTimeRemaining > 0) {
+        if (!bestAttraction || flare.attractionTimeRemaining > bestAttraction.time) {
+          bestAttraction = { x: flare.x, y: flare.y, time: flare.attractionTimeRemaining };
+        }
+      }
+    }
+
+    return bestAttraction ? { x: bestAttraction.x, y: bestAttraction.y } : null;
+  }
+
+  // Check if any light source is currently attracting zombies
+  hasActiveAttraction(): boolean {
+    return this.getAttractionPoint() !== null;
   }
 }

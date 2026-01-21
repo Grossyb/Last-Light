@@ -68,14 +68,6 @@ export class Game {
   private digStartY = 0;
   private digHoles: { x: number; y: number }[] = [];
 
-  // Gravity bomb state
-  private gravityBombCount = 0;
-  private activeGravityBomb: {
-    x: number;
-    y: number;
-    timeRemaining: number;
-    graphics: Graphics;
-  } | null = null;
 
   // Economy
   private points = 0;
@@ -187,6 +179,7 @@ export class Game {
     // Create shop (hidden initially)
     this.shop = new Shop(this.handlePurchase.bind(this));
     this.shop.setRestartCallback(this.goToMainMenu.bind(this));
+    this.shop.setCloseCallback(this.closeShop.bind(this));
     this.uiContainer.addChild(this.shop.getContainer());
 
     // Create hotbar (hidden initially)
@@ -275,8 +268,6 @@ export class Game {
     this.isDigging = false;
     this.digProgress = 0;
     this.digHoles = [];
-    this.gravityBombCount = 0;
-    this.activeGravityBomb = null;
     this.inShop = false;
 
     // Reset combat system
@@ -293,6 +284,7 @@ export class Game {
     }
     this.shop = new Shop(this.handlePurchase.bind(this));
     this.shop.setRestartCallback(this.goToMainMenu.bind(this));
+    this.shop.setCloseCallback(this.closeShop.bind(this));
     this.uiContainer!.addChild(this.shop.getContainer());
 
     // Start level 1
@@ -421,8 +413,8 @@ export class Game {
     this.zombieManager.setSpawnRate(spawnRate);
     this.zombieManager.resetHordeRush(); // Reset from previous level
 
-    // Set max zombies alive for this level (scales with level, caps at 200)
-    const maxZombies = Math.min(200, 50 + (level - 1) * 20);
+    // Set max zombies alive for this level (scales with level, caps at 500)
+    const maxZombies = Math.min(500, 50 + (level - 1) * 30);
     this.zombieManager.setMaxZombiesAlive(maxZombies);
 
     // Initialize combat system
@@ -455,13 +447,6 @@ export class Game {
     this.isDigging = false;
     this.digProgress = 0;
     this.digHoles = [];
-
-    // Clear any active gravity bomb
-    if (this.activeGravityBomb && this.worldContainer) {
-      this.worldContainer.removeChild(this.activeGravityBomb.graphics);
-      this.activeGravityBomb = null;
-    }
-    this.zombieManager?.clearAttractionPoint();
 
     // Create torch light visual
     this.createTorchLight();
@@ -823,8 +808,6 @@ export class Game {
     this.isDigging = false;
     this.digProgress = 0;
     this.digHoles = [];
-    this.gravityBombCount = 0;
-    this.activeGravityBomb = null;
     this.inShop = false;
     // Game is now active
 
@@ -843,6 +826,7 @@ export class Game {
     }
     this.shop = new Shop(this.handlePurchase.bind(this));
     this.shop.setRestartCallback(this.goToMainMenu.bind(this));
+    this.shop.setCloseCallback(this.closeShop.bind(this));
     this.uiContainer!.addChild(this.shop.getContainer());
 
     // Start fresh at level 1
@@ -900,12 +884,23 @@ export class Game {
       case 'shovel':
         this.shovelCount++;
         break;
-      case 'gravitybomb':
-        this.gravityBombCount++;
-        break;
     }
 
+    // Update shop display with new points and inventory
     this.shop?.updateDisplay(this.points, this.playerHP, this.playerMaxHP);
+
+    // Update shop's inventory display (hotbar)
+    const currentWeapon = this.combatSystem?.getWeapon() ?? 'pistol';
+    this.shop?.updateInventory({
+      currentWeapon,
+      hasRifle: this.shop?.hasWeapon('rifle') ?? false,
+      hasShotgun: this.shop?.hasWeapon('shotgun') ?? false,
+      hasGatling: this.shop?.hasWeapon('gatling') ?? false,
+      hasScythe: this.shop?.hasWeapon('scythe') ?? false,
+      lanternCount: this.lanternCount,
+      flareCount: this.flareCount,
+      shovelCount: this.shovelCount,
+    });
   }
 
   private onPowerUpStart(type: PowerUpType): void {
@@ -971,17 +966,37 @@ export class Game {
       this.cumulativePoints += timeBonus;
     }
 
-    this.shop?.open(this.points, this.currentLevel + 1, this.playerHP, this.playerMaxHP);
+    // Hide minimap during shop
+    if (this.minimap) {
+      this.minimap.getContainer().visible = false;
+    }
 
-    // Bring HUD to front so it's visible over shop
-    if (this.hudText && this.uiContainer) {
-      this.uiContainer.removeChild(this.hudText);
-      this.uiContainer.addChild(this.hudText);
-    }
-    if (this.hpBar && this.uiContainer) {
-      this.uiContainer.removeChild(this.hpBar);
-      this.uiContainer.addChild(this.hpBar);
-    }
+    // Hide only timer during shop - keep HP bar and level info visible
+    if (this.timerPanel) this.timerPanel.visible = false;
+    if (this.timerText) this.timerText.visible = false;
+    if (this.parText) this.parText.visible = false;
+    // Hide points from HUD since shop shows points
+    if (this.hudPointsText) this.hudPointsText.visible = false;
+
+    // Get current weapon for shop hotbar display
+    const currentWeapon = this.combatSystem?.getWeapon() ?? 'pistol';
+
+    this.shop?.open(
+      this.points,
+      this.currentLevel + 1,
+      this.playerHP,
+      this.playerMaxHP,
+      {
+        currentWeapon,
+        hasRifle: this.shop?.hasWeapon('rifle') ?? false,
+        hasShotgun: this.shop?.hasWeapon('shotgun') ?? false,
+        hasGatling: this.shop?.hasWeapon('gatling') ?? false,
+        hasScythe: this.shop?.hasWeapon('scythe') ?? false,
+        lanternCount: this.lanternCount,
+        flareCount: this.flareCount,
+        shovelCount: this.shovelCount,
+      }
+    );
   }
 
   private closeShop(): void {
@@ -989,6 +1004,13 @@ export class Game {
 
     this.shop?.close();
     this.inShop = false;
+
+    // Restore timer and points visibility before starting new level
+    if (this.timerPanel) this.timerPanel.visible = true;
+    if (this.timerText) this.timerText.visible = true;
+    if (this.parText) this.parText.visible = true;
+    if (this.hudPointsText) this.hudPointsText.visible = true;
+
     this.startLevel(this.currentLevel + 1);
   }
 
@@ -1039,7 +1061,6 @@ export class Game {
     this.levelTime += dt;
 
     this.updateDigging(dt);
-    this.updateGravityBomb(dt);
     this.updatePlayer(dt);
     this.updateCamera();
     this.handleInput();
@@ -1081,6 +1102,17 @@ export class Game {
     const movement = this.input.getMovementVector();
     const speedBoostMultiplier = this.powerUpSystem?.hasEffect('speedboost') ? 2 : 1;
     const effectiveSpeed = PLAYER_SPEED * this.speedMultiplier * speedBoostMultiplier;
+
+    // Update player rotation based on movement direction
+    // Sprite faces down by default (positive Y)
+    if (movement.x !== 0 || movement.y !== 0) {
+      // Calculate angle from movement vector
+      // Negate x to flip left/right rotation direction
+      const targetRotation = Math.atan2(-movement.x, movement.y);
+      if (this.player) {
+        this.player.rotation = targetRotation;
+      }
+    }
 
     if (movement.x !== 0 || movement.y !== 0) {
       this.playerVelX += movement.x * PLAYER_ACCELERATION * dt;
@@ -1184,12 +1216,12 @@ export class Game {
       this.input.consumeKey('Digit3');
       this.combatSystem?.setWeapon('shotgun');
     }
-    if (this.input.isKeyDown('Digit6') && this.shop?.hasWeapon('gatling')) {
-      this.input.consumeKey('Digit6');
+    if (this.input.isKeyDown('Digit5') && this.shop?.hasWeapon('gatling')) {
+      this.input.consumeKey('Digit5');
       this.combatSystem?.setWeapon('gatling');
     }
-    if (this.input.isKeyDown('Digit7') && this.shop?.hasWeapon('scythe')) {
-      this.input.consumeKey('Digit7');
+    if (this.input.isKeyDown('Digit6') && this.shop?.hasWeapon('scythe')) {
+      this.input.consumeKey('Digit6');
       this.combatSystem?.setWeapon('scythe');
     }
 
@@ -1201,13 +1233,6 @@ export class Game {
       }
     }
 
-    // Gravity Bomb - [5] to throw
-    if (this.input.isKeyDown('Digit5')) {
-      this.input.consumeKey('Digit5');
-      if (this.gravityBombCount > 0 && !this.activeGravityBomb) {
-        this.throwGravityBomb();
-      }
-    }
   }
 
   private startDigging(): void {
@@ -1318,109 +1343,21 @@ export class Game {
     }
   }
 
-  private throwGravityBomb(): void {
-    if (!this.worldContainer) return;
-
-    // Throw a short distance in front of player (towards mouse)
-    const mouse = this.input.getMousePosition();
-    const targetX = mouse.x - this.worldContainer.x;
-    const targetY = mouse.y - this.worldContainer.y;
-
-    const dx = targetX - this.playerX;
-    const dy = targetY - this.playerY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    // Small throw radius (80 pixels max)
-    const throwDist = Math.min(dist, 80);
-    const bombX = this.playerX + (dx / dist) * throwDist;
-    const bombY = this.playerY + (dy / dist) * throwDist;
-
-    // Create bomb graphics
-    const graphics = new Graphics();
-    this.worldContainer.addChild(graphics);
-
-    this.activeGravityBomb = {
-      x: bombX,
-      y: bombY,
-      timeRemaining: 4,
-      graphics,
-    };
-
-    // Tell zombies to chase the bomb
-    this.zombieManager?.setAttractionPoint(bombX, bombY);
-
-    this.gravityBombCount--;
-  }
-
-  private updateGravityBomb(dt: number): void {
-    if (!this.activeGravityBomb || !this.worldContainer) return;
-
-    this.activeGravityBomb.timeRemaining -= dt;
-
-    // Update visual with pulsing effect
-    const bomb = this.activeGravityBomb;
-    bomb.graphics.clear();
-
-    // Pulsing radius based on time
-    const pulse = Math.sin(Date.now() / 100) * 0.3 + 1;
-    const baseRadius = 60;
-    const pulseRadius = baseRadius * pulse;
-
-    // Outer pulsing ring
-    bomb.graphics.circle(bomb.x, bomb.y, pulseRadius);
-    bomb.graphics.fill({ color: 0x44aaff, alpha: 0.15 });
-
-    // Middle ring
-    bomb.graphics.circle(bomb.x, bomb.y, pulseRadius * 0.7);
-    bomb.graphics.fill({ color: 0x66ccff, alpha: 0.2 });
-
-    // Inner core
-    bomb.graphics.circle(bomb.x, bomb.y, 12);
-    bomb.graphics.fill(0x88ddff);
-
-    // Bright center
-    bomb.graphics.circle(bomb.x, bomb.y, 5);
-    bomb.graphics.fill(0xffffff);
-
-    // Check if expired
-    if (bomb.timeRemaining <= 0) {
-      this.explodeGravityBomb();
-    }
-  }
-
-  private explodeGravityBomb(): void {
-    if (!this.activeGravityBomb || !this.worldContainer || !this.zombieManager) return;
-
-    const bomb = this.activeGravityBomb;
-    const blastRadius = 100;
-    const blastDamage = 50;
-
-    // Deal damage to all zombies in radius
-    const zombies = this.zombieManager.getZombies();
-    for (const zombie of zombies) {
-      const dx = zombie.x - bomb.x;
-      const dy = zombie.y - bomb.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      if (dist < blastRadius) {
-        // Damage falls off with distance
-        const damageMultiplier = 1 - (dist / blastRadius) * 0.5;
-        const damage = Math.floor(blastDamage * damageMultiplier * this.damageMultiplier);
-        this.zombieManager.damageZombie(zombie.id, damage);
-      }
-    }
-
-    // Clear attraction point
-    this.zombieManager.clearAttractionPoint();
-
-    // Remove graphics
-    this.worldContainer.removeChild(bomb.graphics);
-    this.activeGravityBomb = null;
-  }
 
   private updateFogOfWar(dt: number): void {
     if (!this.fogOfWar) return;
     this.fogOfWar.update(this.playerX, this.playerY, dt);
+
+    // Update attraction timers for lanterns and flares
+    this.fogOfWar.updateAttractionTimers(dt);
+
+    // Set zombie attraction based on active light sources
+    const attractionPoint = this.fogOfWar.getAttractionPoint();
+    if (attractionPoint) {
+      this.zombieManager?.setAttractionPoint(attractionPoint.x, attractionPoint.y);
+    } else {
+      this.zombieManager?.clearAttractionPoint();
+    }
   }
 
   private updateZombies(dt: number): void {
@@ -1681,9 +1618,9 @@ export class Game {
     const currentWeapon = this.combatSystem?.getWeapon() ?? 'pistol';
 
     const slots: HotBarSlot[] = [
-      // Weapon slots (2 slots showing primary and secondary)
+      // Weapon slots - one per weapon
       {
-        id: 'weapon1',
+        id: 'pistol',
         hotkey: '1',
         label: 'Pistol',
         type: 'weapon',
@@ -1691,20 +1628,20 @@ export class Game {
         active: currentWeapon === 'pistol',
       },
       {
-        id: 'weapon2',
-        hotkey: '2-3',
-        label: this.getSecondaryWeaponLabel(),
+        id: 'rifle',
+        hotkey: '2',
+        label: 'Rifle',
         type: 'weapon',
-        owned: this.hasAnySecondaryWeapon(),
-        active: currentWeapon !== 'pistol' && currentWeapon !== 'gatling' && currentWeapon !== 'scythe',
+        owned: this.shop?.hasWeapon('rifle') ?? false,
+        active: currentWeapon === 'rifle',
       },
       {
-        id: 'weapon3',
-        hotkey: '6-7',
-        label: this.getHeavyWeaponLabel(),
+        id: 'shotgun',
+        hotkey: '3',
+        label: 'Shotgun',
         type: 'weapon',
-        owned: this.shop?.hasWeapon('gatling') || this.shop?.hasWeapon('scythe') || false,
-        active: currentWeapon === 'gatling' || currentWeapon === 'scythe',
+        owned: this.shop?.hasWeapon('shotgun') ?? false,
+        active: currentWeapon === 'shotgun',
       },
       // Gadget slots
       {
@@ -1716,12 +1653,20 @@ export class Game {
         owned: this.shovelCount > 0,
       },
       {
-        id: 'gravitybomb',
+        id: 'gatling',
         hotkey: '5',
-        label: 'G-Bomb',
-        type: 'gadget',
-        count: this.gravityBombCount,
-        owned: this.gravityBombCount > 0,
+        label: 'Gatling',
+        type: 'weapon',
+        owned: this.shop?.hasWeapon('gatling') ?? false,
+        active: currentWeapon === 'gatling',
+      },
+      {
+        id: 'scythe',
+        hotkey: '6',
+        label: 'Scythe',
+        type: 'weapon',
+        owned: this.shop?.hasWeapon('scythe') ?? false,
+        active: currentWeapon === 'scythe',
       },
       // Utility slots
       {
@@ -1743,29 +1688,6 @@ export class Game {
     ];
 
     this.hotBar.update(slots);
-  }
-
-  private getSecondaryWeaponLabel(): string {
-    const currentWeapon = this.combatSystem?.getWeapon() ?? 'pistol';
-    // Show currently active secondary weapon, or first owned one
-    if (currentWeapon === 'rifle') return 'Rifle';
-    if (currentWeapon === 'shotgun') return 'Shotgun';
-    if (this.shop?.hasWeapon('rifle')) return 'Rifle';
-    if (this.shop?.hasWeapon('shotgun')) return 'Shotgun';
-    return 'Rifle';
-  }
-
-  private getHeavyWeaponLabel(): string {
-    const currentWeapon = this.combatSystem?.getWeapon() ?? 'pistol';
-    if (currentWeapon === 'gatling') return 'Gatling';
-    if (currentWeapon === 'scythe') return 'Scythe';
-    if (this.shop?.hasWeapon('gatling')) return 'Gatling';
-    if (this.shop?.hasWeapon('scythe')) return 'Scythe';
-    return 'Heavy';
-  }
-
-  private hasAnySecondaryWeapon(): boolean {
-    return this.shop?.hasWeapon('rifle') || this.shop?.hasWeapon('shotgun') || false;
   }
 
   private updateDamageFlash(dt: number): void {

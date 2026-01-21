@@ -72,7 +72,7 @@ export const ZOMBIE_SPAWN_RATE_BASE = 0.8; // zombies per second at level 1
 export const ZOMBIE_SPAWN_RATE_INCREMENT = 0.3; // +0.3 per level
 export const ZOMBIE_HP_SCALE_PER_LEVEL = 0.2; // +20% HP per level
 export const ZOMBIE_SPEED_SCALE_PER_LEVEL = 0.05; // +5% speed per level
-export const MAX_ZOMBIES_ALIVE = 50; // cap to prevent lag
+export const MAX_ZOMBIES_ALIVE = 500; // increased with sprite optimization
 
 // Flare flight
 export const FLARE_FLIGHT_SPEED = 800; // units per second
