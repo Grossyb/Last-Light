@@ -1,4 +1,4 @@
-import { Graphics, Container, Sprite, Texture, Rectangle } from 'pixi.js';
+import { Container, Sprite, Texture } from 'pixi.js';
 import { MazeData, MazeGenerator } from './MazeGenerator';
 import { FogOfWar } from './FogOfWar';
 import {
@@ -45,9 +45,6 @@ export class ZombieManager {
   private zombieFlashTexture: Texture | null = null;
   private particleTexture: Texture | null = null;
 
-  // Object pool for dead zombie sprites
-  private spritePool: Sprite[] = [];
-  private particlePool: Sprite[] = [];
 
   // Scaling factors
   private hpMultiplier = 1;
@@ -68,9 +65,6 @@ export class ZombieManager {
   // Attraction point (light sources)
   private attractionPoint: { x: number; y: number } | null = null;
 
-  // Cleanup timer
-  private cleanupTimer = 0;
-  private readonly CLEANUP_INTERVAL = 2; // seconds
 
   constructor(maze: MazeData) {
     this.maze = maze;
@@ -83,65 +77,41 @@ export class ZombieManager {
   }
 
   private createTextures(): void {
-    // Create zombie texture (circle)
-    const zombieGraphics = new Graphics();
-    zombieGraphics.circle(ZOMBIE_SIZE / 2, ZOMBIE_SIZE / 2, ZOMBIE_SIZE / 2);
-    zombieGraphics.fill(0x884444);
-
-    const renderer = this.getRenderer();
-    if (renderer) {
-      this.zombieTexture = renderer.generateTexture({
-        target: zombieGraphics,
-        resolution: 2,
-        frame: new Rectangle(0, 0, ZOMBIE_SIZE, ZOMBIE_SIZE),
-      });
-    }
+    // Create zombie texture (circle) using canvas - works without renderer
+    const zombieCanvas = document.createElement('canvas');
+    const zombieSize = ZOMBIE_SIZE * 2; // 2x resolution
+    zombieCanvas.width = zombieSize;
+    zombieCanvas.height = zombieSize;
+    const zombieCtx = zombieCanvas.getContext('2d')!;
+    zombieCtx.fillStyle = '#884444';
+    zombieCtx.beginPath();
+    zombieCtx.arc(zombieSize / 2, zombieSize / 2, zombieSize / 2, 0, Math.PI * 2);
+    zombieCtx.fill();
+    this.zombieTexture = Texture.from(zombieCanvas);
 
     // Create flash texture (brighter red)
-    const flashGraphics = new Graphics();
-    flashGraphics.circle(ZOMBIE_SIZE / 2, ZOMBIE_SIZE / 2, ZOMBIE_SIZE / 2);
-    flashGraphics.fill(0xff6666);
-
-    if (renderer) {
-      this.zombieFlashTexture = renderer.generateTexture({
-        target: flashGraphics,
-        resolution: 2,
-        frame: new Rectangle(0, 0, ZOMBIE_SIZE, ZOMBIE_SIZE),
-      });
-    }
+    const flashCanvas = document.createElement('canvas');
+    flashCanvas.width = zombieSize;
+    flashCanvas.height = zombieSize;
+    const flashCtx = flashCanvas.getContext('2d')!;
+    flashCtx.fillStyle = '#ff6666';
+    flashCtx.beginPath();
+    flashCtx.arc(zombieSize / 2, zombieSize / 2, zombieSize / 2, 0, Math.PI * 2);
+    flashCtx.fill();
+    this.zombieFlashTexture = Texture.from(flashCanvas);
 
     // Create particle texture (small square)
-    const particleGraphics = new Graphics();
-    particleGraphics.rect(0, 0, 4, 4);
-    particleGraphics.fill(0xff4444);
-
-    if (renderer) {
-      this.particleTexture = renderer.generateTexture({
-        target: particleGraphics,
-        resolution: 2,
-        frame: new Rectangle(0, 0, 4, 4),
-      });
-    }
-
-    // Clean up temp graphics
-    zombieGraphics.destroy();
-    flashGraphics.destroy();
-    particleGraphics.destroy();
+    const particleCanvas = document.createElement('canvas');
+    const particleSize = 8; // 2x resolution for 4px particle
+    particleCanvas.width = particleSize;
+    particleCanvas.height = particleSize;
+    const particleCtx = particleCanvas.getContext('2d')!;
+    particleCtx.fillStyle = '#ff4444';
+    particleCtx.fillRect(0, 0, particleSize, particleSize);
+    this.particleTexture = Texture.from(particleCanvas);
   }
 
-  private getRenderer(): any {
-    // Try to get renderer from any existing sprite's parent
-    let parent: Container | null = this.container;
-    while (parent) {
-      if ((parent as any).app?.renderer) {
-        return (parent as any).app.renderer;
-      }
-      parent = parent.parent as Container | null;
-    }
-    return null;
-  }
-
-  // Lazy texture creation when we have a renderer
+  // Ensure textures exist (called before first use)
   ensureTextures(): void {
     if (!this.zombieTexture || !this.zombieFlashTexture || !this.particleTexture) {
       this.createTextures();
@@ -248,40 +218,16 @@ export class ZombieManager {
     }
   }
 
-  private getPooledSprite(): Sprite {
-    // Reuse from pool if available
-    if (this.spritePool.length > 0) {
-      const sprite = this.spritePool.pop()!;
-      sprite.visible = true;
-      return sprite;
-    }
-
-    // Create new sprite
+  private createSprite(): Sprite {
     const sprite = new Sprite(this.zombieTexture || Texture.WHITE);
     sprite.anchor.set(0.5, 0.5);
     return sprite;
   }
 
-  private returnSpriteToPool(sprite: Sprite): void {
-    sprite.visible = false;
-    this.spritePool.push(sprite);
-  }
-
-  private getPooledParticleSprite(): Sprite {
-    if (this.particlePool.length > 0) {
-      const sprite = this.particlePool.pop()!;
-      sprite.visible = true;
-      return sprite;
-    }
-
+  private createParticleSprite(): Sprite {
     const sprite = new Sprite(this.particleTexture || Texture.WHITE);
     sprite.anchor.set(0.5, 0.5);
     return sprite;
-  }
-
-  private returnParticleToPool(sprite: Sprite): void {
-    sprite.visible = false;
-    this.particlePool.push(sprite);
   }
 
   private createZombie(x: number, y: number): Zombie {
@@ -291,10 +237,7 @@ export class ZombieManager {
     const hp = Math.floor(ZOMBIE_BASE_HP * this.hpMultiplier);
     const speed = ZOMBIE_BASE_SPEED * this.speedMultiplier;
 
-    const sprite = this.getPooledSprite();
-    if (this.zombieTexture) {
-      sprite.texture = this.zombieTexture;
-    }
+    const sprite = this.createSprite();
     sprite.x = x;
     sprite.y = y;
 
@@ -325,11 +268,12 @@ export class ZombieManager {
       const angle = (Math.PI * 2 * i) / particleCount + (Math.random() - 0.5) * 0.5;
       const speed = 80 + Math.random() * 120; // 80-200 pixels/sec
 
-      const sprite = this.getPooledParticleSprite();
+      const sprite = this.createParticleSprite();
       sprite.x = x + (Math.random() - 0.5) * ZOMBIE_SIZE;
       sprite.y = y + (Math.random() - 0.5) * ZOMBIE_SIZE;
       sprite.scale.set(0.8 + Math.random() * 0.6); // Varied sizes
       sprite.tint = 0xff0000 + Math.floor(Math.random() * 0x004444); // Red variations
+      sprite.alpha = 1;
 
       this.particleContainer.addChild(sprite);
 
@@ -372,7 +316,7 @@ export class ZombieManager {
       // Remove dead particles
       if (particle.life <= 0) {
         this.particleContainer.removeChild(particle.sprite);
-        this.returnParticleToPool(particle.sprite);
+        particle.sprite.destroy();
         this.particles.splice(i, 1);
       }
     }
@@ -381,13 +325,6 @@ export class ZombieManager {
   update(dt: number, playerX: number, playerY: number, fogOfWar?: FogOfWar): number {
     // Update particles
     this.updateParticles(dt);
-
-    // Periodic cleanup of dead zombies from array
-    this.cleanupTimer += dt;
-    if (this.cleanupTimer >= this.CLEANUP_INTERVAL) {
-      this.cleanupTimer = 0;
-      this.cleanupDeadZombies();
-    }
 
     // Continuous spawning
     if (this.spawningEnabled && fogOfWar && this.getAliveCount() < this.maxZombiesAlive) {
@@ -502,8 +439,11 @@ export class ZombieManager {
   }
 
   damageZombie(zombieId: number, damage: number): boolean {
-    const zombie = this.zombies.find(z => z.id === zombieId);
-    if (!zombie || !zombie.alive) return false;
+    const zombieIndex = this.zombies.findIndex(z => z.id === zombieId);
+    if (zombieIndex === -1) return false;
+
+    const zombie = this.zombies[zombieIndex];
+    if (!zombie.alive) return false;
 
     zombie.hp -= damage;
 
@@ -519,9 +459,10 @@ export class ZombieManager {
       // Spawn death particles before removing sprite
       this.spawnDeathParticles(zombie.x, zombie.y);
 
-      // Return sprite to pool instead of destroying
+      // Destroy sprite and remove from array immediately
       this.container.removeChild(zombie.sprite);
-      this.returnSpriteToPool(zombie.sprite);
+      zombie.sprite.destroy();
+      this.zombies.splice(zombieIndex, 1);
 
       return true; // Zombie died
     }
@@ -529,41 +470,54 @@ export class ZombieManager {
     return false;
   }
 
-  private cleanupDeadZombies(): void {
-    // Remove dead zombies from array to prevent memory growth
-    // Keep only alive zombies
-    this.zombies = this.zombies.filter(z => z.alive);
-  }
-
   getZombies(): Zombie[] {
     return this.zombies.filter(z => z.alive);
   }
 
   getAliveCount(): number {
-    let count = 0;
-    for (const zombie of this.zombies) {
-      if (zombie.alive) count++;
-    }
-    return count;
+    return this.zombies.length;
   }
 
   clearAll(): void {
-    // Return all sprites to pool
+    // Destroy all zombie sprites
     for (const zombie of this.zombies) {
       if (zombie.sprite.parent) {
         this.container.removeChild(zombie.sprite);
-        this.returnSpriteToPool(zombie.sprite);
       }
+      zombie.sprite.destroy();
     }
     this.zombies = [];
 
-    // Clear particles
+    // Destroy all particle sprites
     for (const particle of this.particles) {
       if (particle.sprite.parent) {
         this.particleContainer.removeChild(particle.sprite);
-        this.returnParticleToPool(particle.sprite);
       }
+      particle.sprite.destroy();
     }
     this.particles = [];
+  }
+
+  // Destroy everything including textures (call when returning to main menu)
+  destroy(): void {
+    this.clearAll();
+
+    // Destroy textures to free GPU memory
+    if (this.zombieTexture) {
+      this.zombieTexture.destroy(true);
+      this.zombieTexture = null;
+    }
+    if (this.zombieFlashTexture) {
+      this.zombieFlashTexture.destroy(true);
+      this.zombieFlashTexture = null;
+    }
+    if (this.particleTexture) {
+      this.particleTexture.destroy(true);
+      this.particleTexture = null;
+    }
+
+    // Destroy containers
+    this.particleContainer.destroy();
+    this.container.destroy();
   }
 }

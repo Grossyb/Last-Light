@@ -402,4 +402,19 @@ export class FogOfWar {
   hasActiveAttraction(): boolean {
     return this.getAttractionPoint() !== null;
   }
+
+  // Destroy and free all resources
+  destroy(): void {
+    this.lanterns = [];
+    this.flares = [];
+    this.lastLitTime = [];
+    this.permanentlyLit = [];
+
+    if (this.fogGraphics) {
+      this.fogGraphics.destroy();
+    }
+    if (this.fogContainer) {
+      this.fogContainer.destroy();
+    }
+  }
 }

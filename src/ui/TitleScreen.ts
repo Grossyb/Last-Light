@@ -76,7 +76,7 @@ export class TitleScreen {
         distance: 2,
       },
     });
-    this.subtitleText = new Text({ text: 'Escape the darkness. Survive the horde.', style: subtitleStyle });
+    this.subtitleText = new Text({ text: 'Survive the horde. Escape the darkness.', style: subtitleStyle });
     this.container.addChild(this.subtitleText);
 
     // High score panel background

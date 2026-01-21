@@ -309,10 +309,27 @@ export class Game {
     // Game is no longer active
     this.onTitleScreen = true;
 
+    // Destroy game systems to free memory
+    if (this.zombieManager) {
+      this.zombieManager.destroy();
+      this.zombieManager = null as any;
+    }
+    if (this.fogOfWar) {
+      this.fogOfWar.destroy();
+      this.fogOfWar = null as any;
+    }
+    if (this.combatSystem) {
+      this.combatSystem.destroy();
+      this.combatSystem = null as any;
+    }
+
     // Clear the world
     if (this.worldContainer) {
       this.worldContainer.removeChildren();
     }
+
+    // Clear maze reference
+    this.maze = null as any;
 
     // Hide HUD elements
     if (this.hudPanel) this.hudPanel.visible = false;

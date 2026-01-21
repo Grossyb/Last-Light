@@ -504,4 +504,30 @@ export class CombatSystem {
       }
     }
   }
+
+  // Destroy and free all resources
+  destroy(): void {
+    // Destroy all bullets
+    for (const bullet of this.bullets) {
+      bullet.graphics.destroy();
+    }
+    this.bullets = [];
+
+    // Destroy all damage numbers
+    for (const dn of this.damageNumbers) {
+      dn.text.destroy();
+    }
+    this.damageNumbers = [];
+
+    // Destroy scythe graphics
+    if (this.scytheGraphics) {
+      this.scytheGraphics.destroy();
+      this.scytheGraphics = null;
+    }
+
+    // Destroy container
+    if (this.container) {
+      this.container.destroy();
+    }
+  }
 }
