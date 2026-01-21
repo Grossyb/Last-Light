@@ -214,10 +214,10 @@ export class ZombieManager {
     const maxAttempts = 50; // More attempts during horde for faster spawning
     const torchRadius = fogOfWar.getEffectiveTorchRadius();
 
-    // During horde mode, spawn much closer to player (just outside torch range)
+    // During horde mode, spawn closer to player but not right on top of them
     // Normal mode: spawn further away
-    const minSpawnDistance = this.hordeRushActive ? torchRadius + 5 : torchRadius + 20;
-    const maxSpawnDistance = this.hordeRushActive ? torchRadius + 150 : Infinity; // Horde spawns within 150 pixels of torch edge
+    const minSpawnDistance = this.hordeRushActive ? torchRadius + 40 : torchRadius + 20;
+    const maxSpawnDistance = this.hordeRushActive ? torchRadius + 250 : Infinity; // Horde spawns within 250 pixels of torch edge
 
     for (let attempts = 0; attempts < maxAttempts; attempts++) {
       let tileX: number;
