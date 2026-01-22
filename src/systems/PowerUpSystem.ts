@@ -15,7 +15,7 @@ const POWERUP_CONFIGS: Record<PowerUpType, PowerUpConfig> = {
     name: 'Ghost Mode',
     color: 0x8888ff,
     duration: 8,
-    description: 'Invisible to zombies!',
+    description: 'Invisible to creatures!',
   },
   berserker: {
     name: 'Berserker',
@@ -300,10 +300,13 @@ export class PowerUpSystem {
   }
 
   private updateEffectsUI(): void {
+    // Position below health bar (HUD panel is at x=145, y=125, health bar ends around y=235)
+    const baseX = 157;
+    const baseY = 240;
     let yOffset = 0;
     for (const [_type, text] of this.effectTexts) {
-      text.x = window.innerWidth - 180;
-      text.y = 120 + yOffset;
+      text.x = baseX;
+      text.y = baseY + yOffset;
       yOffset += 22;
     }
   }

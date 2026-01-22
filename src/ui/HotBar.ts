@@ -4,11 +4,8 @@ export interface HotBarSlot {
   id: string;
   hotkey: string;
   label: string;
-  type: 'weapon' | 'gadget' | 'utility' | 'passive';
-  count?: number;
-  owned: boolean;
-  active?: boolean;
-  sprite?: string; // Path to sprite image
+  count: number;
+  sprite?: string;
 }
 
 export class HotBar {
@@ -16,8 +13,7 @@ export class HotBar {
   private backgroundPanel: Graphics;
   private slots: Container[] = [];
   private slotSize = 70;
-  private slotGap = 10;
-  private sectionGap = 24;
+  private slotGap = 12;
   private loadedTextures: Map<string, Texture> = new Map();
 
   constructor() {
@@ -27,37 +23,29 @@ export class HotBar {
     this.backgroundPanel = new Graphics();
     this.container.addChild(this.backgroundPanel);
 
-    // Preload weapon sprites
+    // Preload sprites
     this.preloadSprites();
   }
 
   private async preloadSprites(): Promise<void> {
     try {
-      const pistolTexture = await Assets.load('/pistol_sprite.png');
-      this.loadedTextures.set('pistol', pistolTexture);
+      const spriteMap: Record<string, string> = {
+        'lantern': '/lantern_sprite.png',
+        'flare': '/flare_sprite.png',
+        'teleporter': '/teleporter_sprite.png',
+        'shockwave': '/shockwave_sprite.png',
+      };
 
-      const rifleTexture = await Assets.load('/rifle_sprite.png');
-      this.loadedTextures.set('rifle', rifleTexture);
-
-      const shotgunTexture = await Assets.load('/shotgun_sprite.png');
-      this.loadedTextures.set('shotgun', shotgunTexture);
-
-      const gatlingTexture = await Assets.load('/gatling_sprite.png');
-      this.loadedTextures.set('gatling', gatlingTexture);
-
-      const scytheTexture = await Assets.load('/scythe_sprite.png');
-      this.loadedTextures.set('scythe', scytheTexture);
-
-      const lanternTexture = await Assets.load('/lantern_sprite.png');
-      this.loadedTextures.set('lantern', lanternTexture);
-
-      const flareTexture = await Assets.load('/flare_sprite.png');
-      this.loadedTextures.set('flare', flareTexture);
-
-      const teleporterTexture = await Assets.load('/teleporter_sprite.png');
-      this.loadedTextures.set('teleporter', teleporterTexture);
+      for (const [key, path] of Object.entries(spriteMap)) {
+        try {
+          const texture = await Assets.load(path);
+          this.loadedTextures.set(key, texture);
+        } catch (e) {
+          console.warn(`Could not load sprite ${key}:`, e);
+        }
+      }
     } catch (e) {
-      console.warn('Could not load weapon sprites:', e);
+      console.warn('Could not load hotbar sprites:', e);
     }
   }
 
@@ -72,72 +60,76 @@ export class HotBar {
     }
     this.slots = [];
 
-    const weapons = slotData.filter(s => s.type === 'weapon');
-    const gadgets = slotData.filter(s => s.type === 'gadget');
-    const passives = slotData.filter(s => s.type === 'passive');
-    const utilities = slotData.filter(s => s.type === 'utility');
-
-    // Calculate total width
-    const weaponWidth = weapons.length * this.slotSize + (weapons.length - 1) * this.slotGap;
-    const gadgetWidth = gadgets.length * this.slotSize + (gadgets.length - 1) * this.slotGap;
-    const passiveWidth = passives.length * this.slotSize + (passives.length - 1) * this.slotGap;
-    const utilityWidth = utilities.length * this.slotSize + (utilities.length - 1) * this.slotGap;
-    const totalWidth = weaponWidth + this.sectionGap + gadgetWidth + this.sectionGap + passiveWidth + this.sectionGap + utilityWidth;
-
-    // Position container at bottom center
     const screenWidth = window.innerWidth;
     const screenHeight = window.innerHeight;
-    const panelPadding = 12;
+
+    // Position flush with middle bottom of hull (charcoal area is ~88-97% of screen height)
+    const charcoalTop = screenHeight * 0.88;
+    const charcoalMidY = charcoalTop + (screenHeight * 0.045);
+
+    const numSlots = slotData.length;
+    const totalWidth = numSlots * this.slotSize + (numSlots - 1) * this.slotGap;
+    const panelPadding = 16;
     const panelWidth = totalWidth + panelPadding * 2;
     const panelHeight = this.slotSize + panelPadding * 2;
 
-    this.container.x = (screenWidth - panelWidth) / 2;
-    this.container.y = screenHeight - panelHeight - 10;
+    // Center horizontally
+    const panelX = (screenWidth - panelWidth) / 2;
+    const panelY = charcoalMidY - panelHeight / 2;
 
-    // Draw background panel (matching title screen style)
+    this.container.x = panelX;
+    this.container.y = panelY;
+
+    // Draw futuristic background panel
     this.backgroundPanel.clear();
-    this.backgroundPanel.roundRect(0, 0, panelWidth, panelHeight, 8);
-    this.backgroundPanel.fill({ color: 0x000000, alpha: 0.7 });
-    this.backgroundPanel.stroke({ color: 0xffaa00, width: 1, alpha: 0.6 });
 
-    let xOffset = panelPadding;
+    // Outer glow
+    this.backgroundPanel.roundRect(-2, -2, panelWidth + 4, panelHeight + 4, 12);
+    this.backgroundPanel.fill({ color: 0x44ffaa, alpha: 0.08 });
 
-    // Draw weapons section
-    for (let i = 0; i < weapons.length; i++) {
-      const slot = this.createSlot(weapons[i], xOffset, panelPadding);
+    // Main background
+    this.backgroundPanel.roundRect(0, 0, panelWidth, panelHeight, 10);
+    this.backgroundPanel.fill({ color: 0x0a1a15, alpha: 0.92 });
+
+    // Border
+    this.backgroundPanel.roundRect(0, 0, panelWidth, panelHeight, 10);
+    this.backgroundPanel.stroke({ color: 0x44ffaa, width: 1, alpha: 0.4 });
+
+    // Corner accents
+    const accentLen = 16;
+    // Top left
+    this.backgroundPanel.moveTo(0, accentLen);
+    this.backgroundPanel.lineTo(0, 10);
+    this.backgroundPanel.arcTo(0, 0, 10, 0, 10);
+    this.backgroundPanel.lineTo(accentLen, 0);
+    this.backgroundPanel.stroke({ color: 0x44ffaa, width: 2, alpha: 0.7 });
+    // Top right
+    this.backgroundPanel.moveTo(panelWidth - accentLen, 0);
+    this.backgroundPanel.lineTo(panelWidth - 10, 0);
+    this.backgroundPanel.arcTo(panelWidth, 0, panelWidth, 10, 10);
+    this.backgroundPanel.lineTo(panelWidth, accentLen);
+    this.backgroundPanel.stroke({ color: 0x44ffaa, width: 2, alpha: 0.7 });
+    // Bottom left
+    this.backgroundPanel.moveTo(0, panelHeight - accentLen);
+    this.backgroundPanel.lineTo(0, panelHeight - 10);
+    this.backgroundPanel.arcTo(0, panelHeight, 10, panelHeight, 10);
+    this.backgroundPanel.lineTo(accentLen, panelHeight);
+    this.backgroundPanel.stroke({ color: 0x44ffaa, width: 2, alpha: 0.7 });
+    // Bottom right
+    this.backgroundPanel.moveTo(panelWidth - accentLen, panelHeight);
+    this.backgroundPanel.lineTo(panelWidth - 10, panelHeight);
+    this.backgroundPanel.arcTo(panelWidth, panelHeight, panelWidth, panelHeight - 10, 10);
+    this.backgroundPanel.lineTo(panelWidth, panelHeight - accentLen);
+    this.backgroundPanel.stroke({ color: 0x44ffaa, width: 2, alpha: 0.7 });
+
+    // Create slots
+    for (let i = 0; i < numSlots; i++) {
+      const slotX = panelPadding + i * (this.slotSize + this.slotGap);
+      const slotY = panelPadding;
+      const data = slotData[i];
+      const slot = this.createSlot(data, slotX, slotY);
       this.slots.push(slot);
       this.container.addChild(slot);
-      xOffset += this.slotSize + this.slotGap;
-    }
-
-    xOffset += this.sectionGap - this.slotGap;
-
-    // Draw gadgets section
-    for (let i = 0; i < gadgets.length; i++) {
-      const slot = this.createSlot(gadgets[i], xOffset, panelPadding);
-      this.slots.push(slot);
-      this.container.addChild(slot);
-      xOffset += this.slotSize + this.slotGap;
-    }
-
-    xOffset += this.sectionGap - this.slotGap;
-
-    // Draw passives section (scythe, etc.)
-    for (let i = 0; i < passives.length; i++) {
-      const slot = this.createSlot(passives[i], xOffset, panelPadding);
-      this.slots.push(slot);
-      this.container.addChild(slot);
-      xOffset += this.slotSize + this.slotGap;
-    }
-
-    xOffset += this.sectionGap - this.slotGap;
-
-    // Draw utilities section
-    for (let i = 0; i < utilities.length; i++) {
-      const slot = this.createSlot(utilities[i], xOffset, panelPadding);
-      this.slots.push(slot);
-      this.container.addChild(slot);
-      xOffset += this.slotSize + this.slotGap;
     }
   }
 
@@ -146,102 +138,108 @@ export class HotBar {
     slot.x = x;
     slot.y = y;
 
-    // Background with matching style
+    const hasItem = data.count > 0;
+    const glowColor = hasItem ? 0x44ffaa : 0x444444;
+
+    // Slot background
     const bg = new Graphics();
+
+    // Outer glow
+    bg.roundRect(-2, -2, this.slotSize + 4, this.slotSize + 4, 8);
+    bg.fill({ color: glowColor, alpha: hasItem ? 0.1 : 0.03 });
+
+    // Main background
     bg.roundRect(0, 0, this.slotSize, this.slotSize, 6);
+    bg.fill({ color: 0x0a1510, alpha: 0.95 });
 
-    // Colors based on state
-    let borderColor: number;
-    let borderAlpha: number;
+    // Border
+    bg.roundRect(0, 0, this.slotSize, this.slotSize, 6);
+    bg.stroke({ color: glowColor, width: 1, alpha: hasItem ? 0.5 : 0.2 });
 
-    if (data.active) {
-      bg.fill({ color: 0x1a3a1a, alpha: 0.9 });
-      borderColor = 0x66ff66;
-      borderAlpha = 1;
-    } else if (!data.owned || (data.count !== undefined && data.count <= 0)) {
-      bg.fill({ color: 0x111111, alpha: 0.6 });
-      borderColor = 0x444444;
-      borderAlpha = 0.5;
-    } else {
-      bg.fill({ color: 0x1a1a1a, alpha: 0.8 });
-      borderColor = 0x888888;
-      borderAlpha = 0.6;
+    // Corner accents if has item
+    if (hasItem) {
+      const accentLen = 10;
+      // Top left
+      bg.moveTo(0, accentLen);
+      bg.lineTo(0, 6);
+      bg.arcTo(0, 0, 6, 0, 6);
+      bg.lineTo(accentLen, 0);
+      bg.stroke({ color: glowColor, width: 2, alpha: 0.6 });
+      // Top right
+      bg.moveTo(this.slotSize - accentLen, 0);
+      bg.lineTo(this.slotSize - 6, 0);
+      bg.arcTo(this.slotSize, 0, this.slotSize, 6, 6);
+      bg.lineTo(this.slotSize, accentLen);
+      bg.stroke({ color: glowColor, width: 2, alpha: 0.6 });
     }
-
-    bg.stroke({ color: borderColor, width: 2, alpha: borderAlpha });
     slot.addChild(bg);
 
-    // Add weapon sprite if available
+    // Item sprite
     const texture = this.loadedTextures.get(data.id);
-    if (texture && data.owned) {
+    if (texture) {
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5, 0.5);
-      // Scale sprite to fit in slot - 2x bigger
-      const maxSize = this.slotSize - 16;
-      const scale = Math.min(maxSize / sprite.width, maxSize / sprite.height) * 1.6;
+      const spriteSize = this.slotSize * 0.55;
+      const scale = Math.min(spriteSize / sprite.width, spriteSize / sprite.height);
       sprite.scale.set(scale);
       sprite.x = this.slotSize / 2;
-      sprite.y = this.slotSize / 2 - 2;
-      sprite.alpha = data.active ? 1 : 0.7;
+      sprite.y = this.slotSize / 2 - 4;
+      sprite.alpha = hasItem ? 1 : 0.3;
       slot.addChild(sprite);
     }
 
-    // Hotkey label (top-left corner badge)
+    // Hotkey badge (top-left)
+    const hotkeyBgSize = 20;
     const hotkeyBg = new Graphics();
-    hotkeyBg.roundRect(3, 3, 22, 20, 4);
-    hotkeyBg.fill({ color: data.active ? 0xffaa00 : 0x333333, alpha: 0.9 });
+    hotkeyBg.roundRect(4, 4, hotkeyBgSize, 16, 3);
+    hotkeyBg.fill({ color: 0x1a1a1a, alpha: 0.9 });
+    hotkeyBg.stroke({ color: hasItem ? 0x44ffaa : 0x444444, width: 1, alpha: 0.5 });
     slot.addChild(hotkeyBg);
 
     const hotkeyStyle = new TextStyle({
-      fontFamily: 'Arial Black, sans-serif',
-      fontSize: 13,
-      fill: data.active ? 0x000000 : 0xcccccc,
+      fontFamily: 'Consolas, Monaco, monospace',
+      fontSize: 11,
+      fill: hasItem ? 0x44ffaa : 0x555555,
       fontWeight: 'bold',
     });
     const hotkeyText = new Text({ text: data.hotkey, style: hotkeyStyle });
-    hotkeyText.x = 14;
-    hotkeyText.y = 13;
     hotkeyText.anchor.set(0.5, 0.5);
+    hotkeyText.x = 4 + hotkeyBgSize / 2;
+    hotkeyText.y = 12;
     slot.addChild(hotkeyText);
 
-    // Item label (center-bottom)
-    const labelStyle = new TextStyle({
-      fontFamily: 'Arial, sans-serif',
+    // Count badge (top-right)
+    const countBgWidth = 22;
+    const countBg = new Graphics();
+    countBg.roundRect(this.slotSize - countBgWidth - 4, 4, countBgWidth, 16, 3);
+    countBg.fill({ color: hasItem ? 0x1a2a1a : 0x1a1a1a, alpha: 0.9 });
+    countBg.stroke({ color: hasItem ? 0x44ffaa : 0x444444, width: 1, alpha: 0.5 });
+    slot.addChild(countBg);
+
+    const countStyle = new TextStyle({
+      fontFamily: 'Consolas, Monaco, monospace',
       fontSize: 11,
-      fill: data.owned ? 0xffffff : 0x666666,
+      fill: hasItem ? 0x44ffaa : 0x555555,
       fontWeight: 'bold',
+    });
+    const countText = new Text({ text: `${data.count}`, style: countStyle });
+    countText.anchor.set(0.5, 0.5);
+    countText.x = this.slotSize - countBgWidth / 2 - 4;
+    countText.y = 12;
+    slot.addChild(countText);
+
+    // Label at bottom
+    const labelStyle = new TextStyle({
+      fontFamily: 'Consolas, Monaco, monospace',
+      fontSize: 9,
+      fill: hasItem ? 0x88ccaa : 0x444444,
       align: 'center',
-      dropShadow: {
-        color: 0x000000,
-        blur: 2,
-        distance: 1,
-      },
     });
     const labelText = new Text({ text: data.label, style: labelStyle });
     labelText.anchor.set(0.5, 1);
     labelText.x = this.slotSize / 2;
-    labelText.y = this.slotSize - 5;
+    labelText.y = this.slotSize - 4;
     slot.addChild(labelText);
-
-    // Count (bottom-right) for items with quantities
-    if (data.count !== undefined) {
-      const countBg = new Graphics();
-      countBg.roundRect(this.slotSize - 26, this.slotSize - 22, 24, 20, 4);
-      countBg.fill({ color: data.count > 0 ? 0x227722 : 0x442222, alpha: 0.9 });
-      slot.addChild(countBg);
-
-      const countStyle = new TextStyle({
-        fontFamily: 'Arial Black, sans-serif',
-        fontSize: 13,
-        fill: data.count > 0 ? 0x88ff88 : 0x886666,
-        fontWeight: 'bold',
-      });
-      const countText = new Text({ text: `${data.count}`, style: countStyle });
-      countText.anchor.set(0.5, 0.5);
-      countText.x = this.slotSize - 14;
-      countText.y = this.slotSize - 12;
-      slot.addChild(countText);
-    }
 
     return slot;
   }

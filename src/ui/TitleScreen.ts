@@ -100,7 +100,7 @@ export class TitleScreen {
     this.updateHighScoreDisplay();
 
     // Start New Game button
-    this.startButton = this.createButton('START GAME', 260, 55, 0x44bb44, 0x66ff66);
+    this.startButton = this.createButton('START [SPACE]', 220, 50, 0x44bb44, 0x66ff66);
     this.startButton.eventMode = 'static';
     this.startButton.cursor = 'pointer';
     this.startButton.on('pointerdown', () => {
@@ -251,17 +251,17 @@ export class TitleScreen {
     this.highScoreText.x = w / 2 - this.highScoreText.width / 2;
     this.highScoreText.y = panelY + panelHeight / 2 - this.highScoreText.height / 2;
 
-    // Start button (centered with pivot)
+    // Start button (below high score panel)
     this.startButton.x = w / 2;
-    this.startButton.y = h * 0.58;
+    this.startButton.y = panelY + panelHeight + 80;
 
-    // Continue button (centered with pivot)
+    // Continue button (below start button)
     this.continueButton.x = w / 2;
-    this.continueButton.y = h * 0.58 + 70;
+    this.continueButton.y = panelY + panelHeight + 100;
 
     // Controls
     this.controlsText.x = w / 2 - this.controlsText.width / 2;
-    this.controlsText.y = h - 50;
+    this.controlsText.y = h - 30;
   }
 
   getContainer(): Container {

@@ -14,7 +14,7 @@ interface Lantern {
   y: number;
   tileX: number;
   tileY: number;
-  attractionTimeRemaining: number; // Seconds remaining for zombie attraction
+  attractionTimeRemaining: number; // Seconds remaining for creature attraction
   maxAttractionTime: number; // Initial duration (for calculating dim ratio)
 }
 
@@ -23,7 +23,7 @@ interface Flare {
   y: number;
   tileX: number;
   tileY: number;
-  attractionTimeRemaining: number; // Seconds remaining for zombie attraction
+  attractionTimeRemaining: number; // Seconds remaining for creature attraction
   maxAttractionTime: number; // Initial duration (for calculating dim ratio)
 }
 
@@ -334,7 +334,7 @@ export class FogOfWar {
     return this.flyingFlares;
   }
 
-  // Check if a tile is currently visible (for zombie spawning logic later)
+  // Check if a tile is currently visible (for creature spawning logic later)
   isTileVisible(tileX: number, tileY: number, playerX: number, playerY: number): boolean {
     return this.getTileVisibility(tileX, tileY, playerX, playerY) > 0.5;
   }
@@ -420,7 +420,7 @@ export class FogOfWar {
     return bestAttraction ? { x: bestAttraction.x, y: bestAttraction.y, timeRemaining: bestAttraction.time, maxTime: bestAttraction.maxTime } : null;
   }
 
-  // Check if any light source is currently attracting zombies
+  // Check if any light source is currently attracting creatures
   hasActiveAttraction(): boolean {
     return this.getAttractionPoint() !== null;
   }

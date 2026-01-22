@@ -50,36 +50,36 @@ export const GATLING_RANGE = 280;
 // Combat - Scythe (melee)
 export const SCYTHE_DAMAGE = 15;
 export const SCYTHE_ROTATION_SPEED = 3; // rotations per second
-export const SCYTHE_HIT_COOLDOWN = 0.2; // seconds between hits on same zombie
+export const SCYTHE_HIT_COOLDOWN = 0.2; // seconds between hits on same creature
 export const SCYTHE_RADIUS = 35; // tight melee range just around player
 
 // Combat - General
 export const BULLET_SPEED = 600;
 export const AUTO_SHOOT_RANGE = 250;
 
-// Zombies
-export const ZOMBIE_BASE_HP = 20;
-export const ZOMBIE_BASE_SPEED = 70;
-export const ZOMBIE_DAMAGE_PER_SECOND = 8;
-export const ZOMBIE_SIZE = 20;
+// Crawlers
+export const CRAWLER_BASE_HP = 20;
+export const CRAWLER_BASE_SPEED = 70;
+export const CRAWLER_DAMAGE_PER_SECOND = 8;
+export const CRAWLER_SIZE = 20;
 
 // Level Progression
 export const STARTING_MAP_SIZE = 25; // 25x25 tiles
 export const MAP_SIZE_INCREMENT = 5; // +5 tiles per level
 export const MAX_MAP_SIZE = 60; // cap at 60x60
 
-// Zombie Spawning (endless)
-export const ZOMBIE_SPAWN_RATE_BASE = 0.8; // zombies per second at level 1
-export const ZOMBIE_SPAWN_RATE_INCREMENT = 0.3; // +0.3 per level
-export const ZOMBIE_HP_SCALE_PER_LEVEL = 0.2; // +20% HP per level
-export const ZOMBIE_SPEED_SCALE_PER_LEVEL = 0.05; // +5% speed per level
-export const MAX_ZOMBIES_ALIVE = 500; // increased with sprite optimization
+// Crawler Spawning (endless)
+export const CRAWLER_SPAWN_RATE_BASE = 0.8; // crawlers per second at level 1
+export const CRAWLER_SPAWN_RATE_INCREMENT = 0.3; // +0.3 per level
+export const CRAWLER_HP_SCALE_PER_LEVEL = 0.2; // +20% HP per level
+export const CRAWLER_SPEED_SCALE_PER_LEVEL = 0.05; // +5% speed per level
+export const MAX_CRAWLERS_ALIVE = 500; // increased with sprite optimization
 
 // Flare flight
 export const FLARE_FLIGHT_SPEED = 800; // units per second
 
 // Economy
-export const POINTS_PER_KILL = 10;
+export const POINTS_PER_KILL = 5;
 
 // Maze
 export const TILE_SIZE = 40;
@@ -89,4 +89,4 @@ export const COLOR_BACKGROUND = 0x0a0a0a;
 export const COLOR_WALL = 0x2a2a2a;
 export const COLOR_FLOOR = 0x1a1a1a;
 export const COLOR_PLAYER = 0x44aa44;
-export const COLOR_ZOMBIE = 0x884444;
+export const COLOR_CRAWLER = 0x884444;

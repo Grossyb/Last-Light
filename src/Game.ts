@@ -3,19 +3,17 @@ import { GameLoop } from '@/core/GameLoop';
 import { InputManager } from '@/core/InputManager';
 import { MazeGenerator, MazeData } from '@/systems/MazeGenerator';
 import { FogOfWar } from '@/systems/FogOfWar';
-import { ZombieManager } from '@/systems/ZombieManager';
+import { CreatureManager } from '@/systems/CreatureManager';
 import { CombatSystem } from '@/systems/CombatSystem';
 import { PowerUpSystem, PowerUpType } from '@/systems/PowerUpSystem';
 import { Minimap } from '@/ui/Minimap';
 import { Shop, Upgrade } from '@/ui/Shop';
 import { TitleScreen } from '@/ui/TitleScreen';
-import { HotBar, HotBarSlot } from '@/ui/HotBar';
+import { HotBar } from '@/ui/HotBar';
 import {
   GAME_WIDTH,
   GAME_HEIGHT,
   COLOR_BACKGROUND,
-  COLOR_WALL,
-  COLOR_FLOOR,
   PLAYER_SIZE,
   PLAYER_SPEED,
   PLAYER_ACCELERATION,
@@ -28,10 +26,10 @@ import {
   STARTING_MAP_SIZE,
   MAP_SIZE_INCREMENT,
   MAX_MAP_SIZE,
-  ZOMBIE_SPAWN_RATE_BASE,
-  ZOMBIE_SPAWN_RATE_INCREMENT,
-  ZOMBIE_HP_SCALE_PER_LEVEL,
-  ZOMBIE_SPEED_SCALE_PER_LEVEL,
+  CRAWLER_SPAWN_RATE_BASE,
+  CRAWLER_SPAWN_RATE_INCREMENT,
+  CRAWLER_HP_SCALE_PER_LEVEL,
+  CRAWLER_SPEED_SCALE_PER_LEVEL,
   POINTS_PER_KILL,
 } from '@/config/constants';
 
@@ -47,6 +45,8 @@ export class Game {
   // Additional textures
   private lanternTexture: any = null;
   private flareTexture: any = null;
+  private hullTexture: any = null;
+  private hullOverlay: Sprite | null = null;
   private playerX = 0;
   private playerY = 0;
   private playerVelX = 0;
@@ -62,8 +62,9 @@ export class Game {
 
   // Inventory
   private lanternCount = 2;
-  private flareCount = 2;
+  private flareCount = 1;
   private teleporterCount = 0;
+  private shockwaveCount = 0;
 
   // Teleporter state
   private isTeleporting = false;
@@ -71,6 +72,14 @@ export class Game {
   private teleportStartX = 0;
   private teleportStartY = 0;
   private teleportGraphics: Graphics | null = null;
+
+  // Shockwave state
+  private shockwaveActive = false;
+  private shockwaveProgress = 0;
+  private shockwaveGraphics: Graphics | null = null;
+  private readonly SHOCKWAVE_DURATION = 0.5; // Visual expansion time
+  private readonly SHOCKWAVE_FREEZE_TIME = 4; // How long enemies stay frozen
+  private readonly SHOCKWAVE_RADIUS = 300; // Radius of effect
 
 
   // Economy
@@ -93,7 +102,7 @@ export class Game {
 
   // Systems
   private fogOfWar: FogOfWar | null = null;
-  private zombieManager: ZombieManager | null = null;
+  private creatureManager: CreatureManager | null = null;
   private combatSystem: CombatSystem | null = null;
   private powerUpSystem: PowerUpSystem | null = null;
 
@@ -118,9 +127,8 @@ export class Game {
   private hpBar: Graphics | null = null;
   private hpBarBg: Graphics | null = null;
   private hpText: Text | null = null;
-  private timerPanel: Graphics | null = null;
-  private timerText: Text | null = null;
-  private parText: Text | null = null;
+  private hordeTimerPanel: Graphics | null = null;
+  private hordeTimerText: Text | null = null;
   private attractionTimerText: Text | null = null;
   private damageFlash: Graphics | null = null;
   private damageFlashAlpha = 0;
@@ -133,6 +141,16 @@ export class Game {
   // Horde mode state
   private hordeTriggeredThisLevel = false;
   private hordeTextAnimTime = 0; // Animation timer for horde text
+
+  // Level damage tracking (for no-damage bonus)
+  private levelDamageTaken = 0;
+
+  // Floating point text above player (world space)
+  private playerFloatingTexts: { text: Text; lifetime: number; maxLifetime: number; offsetY: number }[] = [];
+
+  // Delayed bonus display (for level end bonuses)
+  // applyPoints: if true, points are added when this bonus displays (not before)
+  private pendingBonuses: { amount: number; label: string; delay: number; applyPoints: boolean }[] = [];
 
   // Lantern/flare visuals in world
   private lanternGraphics: Graphics | null = null;
@@ -175,6 +193,7 @@ export class Game {
     this.playerTexture = await Assets.load('/alien_sprite.png');
     this.lanternTexture = await Assets.load('/lantern_sprite.png');
     this.flareTexture = await Assets.load('/flare_sprite.png');
+    this.hullTexture = await Assets.load('/armory_hull.png');
 
     // Remove default margins/padding for true fullscreen
     document.body.style.margin = '0';
@@ -189,19 +208,32 @@ export class Game {
     this.uiContainer = new Container();
     this.app.stage.addChild(this.uiContainer);
 
-    // Create shop (hidden initially)
+    // Z-ORDER (bottom to top):
+    // 1. HUD elements (always visible during gameplay, behind shop)
+    // 2. Minimap (visible during gameplay, behind shop)
+    // 3. Shop (covers HUD/minimap when open)
+    // 4. Hull overlay (frames everything, always on top)
+    // 5. Hotbar (sits in hull's slots)
+
+    // Create HUD FIRST (bottom layer)
+    this.createHUD();
+
+    // Minimap will be added in startLevel after HUD
+
+    // Create shop (renders ABOVE HUD/minimap, BELOW hull)
     this.shop = new Shop(this.handlePurchase.bind(this));
     this.shop.setRestartCallback(this.goToMainMenu.bind(this));
     this.shop.setCloseCallback(this.closeShop.bind(this));
     this.uiContainer.addChild(this.shop.getContainer());
 
-    // Create hotbar (hidden initially)
-    this.hotBar = new HotBar();
-    this.hotBar.setVisible(false);
-    this.uiContainer.addChild(this.hotBar.getContainer());
+    // Create hull overlay (cockpit frame) - renders ON TOP of shop
+    this.hullOverlay = new Sprite(this.hullTexture);
+    this.hullOverlay.visible = false; // Hidden until game starts
+    this.uiContainer.addChild(this.hullOverlay);
 
-    // Create HUD
-    this.createHUD();
+    // Create hotbar for consumable items - AFTER hull so it renders on top
+    this.hotBar = new HotBar();
+    this.uiContainer.addChild(this.hotBar.getContainer());
 
     // Create damage flash overlay
     this.createDamageFlash();
@@ -229,6 +261,20 @@ export class Game {
     if (this.minimap) {
       this.minimap.resize(window.innerWidth, window.innerHeight);
     }
+    // Resize hull overlay to cover screen
+    this.updateHullOverlay();
+  }
+
+  private updateHullOverlay(): void {
+    if (!this.hullOverlay) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    // Scale hull to cover the screen
+    const scaleX = w / this.hullOverlay.texture.width;
+    const scaleY = h / this.hullOverlay.texture.height;
+    this.hullOverlay.scale.set(scaleX, scaleY);
+    this.hullOverlay.x = 0;
+    this.hullOverlay.y = 0;
   }
 
   private startNewGame(): void {
@@ -245,18 +291,19 @@ export class Game {
     if (this.hpBar) this.hpBar.visible = true;
     if (this.hpBarBg) this.hpBarBg.visible = true;
     if (this.hpText) this.hpText.visible = true;
-    if (this.timerPanel) this.timerPanel.visible = true;
-    if (this.timerText) this.timerText.visible = true;
-    if (this.parText) this.parText.visible = true;
+    if (this.hordeTimerPanel) this.hordeTimerPanel.visible = true;
+    if (this.hordeTimerText) this.hordeTimerText.visible = true;
 
     // Show power-up effects container
     if (this.powerUpSystem) {
       this.powerUpSystem.getEffectsContainer().visible = true;
     }
 
-    // Show hotbar
-    if (this.hotBar) {
-      this.hotBar.setVisible(true);
+
+    // Show hull overlay
+    if (this.hullOverlay) {
+      this.hullOverlay.visible = true;
+      this.updateHullOverlay();
     }
 
     // Reset timer
@@ -278,29 +325,34 @@ export class Game {
     this.speedMultiplier = 1;
     this.torchMultiplier = 1;
     this.lanternCount = 2;
-    this.flareCount = 2;
+    this.flareCount = 1;
     this.teleporterCount = 0;
+    this.shockwaveCount = 0;
     this.isTeleporting = false;
     this.teleportProgress = 0;
+    this.shockwaveActive = false;
+    this.shockwaveProgress = 0;
     this.inShop = false;
+    this.pendingBonuses = [];
+    this.playerFloatingTexts = [];
 
     // Reset combat system
     if (this.combatSystem) {
       this.combatSystem.resetKillCount();
-      this.combatSystem.setWeapon('pistol');
+      this.combatSystem.resetWeapons();
       this.combatSystem.setDamageMultiplier(1);
       this.combatSystem.setFireRateMultiplier(1);
       this.combatSystem.setScytheEnabled(false);
     }
 
-    // Recreate shop to reset purchases
+    // Recreate shop to reset purchases - add at index 0 so it's behind hull
     if (this.shop && this.uiContainer) {
       this.uiContainer.removeChild(this.shop.getContainer());
     }
     this.shop = new Shop(this.handlePurchase.bind(this));
     this.shop.setRestartCallback(this.goToMainMenu.bind(this));
     this.shop.setCloseCallback(this.closeShop.bind(this));
-    this.uiContainer!.addChild(this.shop.getContainer());
+    this.uiContainer!.addChildAt(this.shop.getContainer(), 0);
 
     // Start level 1
     this.startLevel(1);
@@ -325,9 +377,9 @@ export class Game {
     this.onTitleScreen = true;
 
     // Destroy game systems to free memory
-    if (this.zombieManager) {
-      this.zombieManager.destroy();
-      this.zombieManager = null as any;
+    if (this.creatureManager) {
+      this.creatureManager.destroy();
+      this.creatureManager = null as any;
     }
     if (this.fogOfWar) {
       this.fogOfWar.destroy();
@@ -343,6 +395,10 @@ export class Game {
       this.worldContainer.removeChildren();
     }
 
+    // Clear floating texts and pending bonuses
+    this.playerFloatingTexts = [];
+    this.pendingBonuses = [];
+
     // Clear maze reference
     this.maze = null as any;
 
@@ -356,18 +412,18 @@ export class Game {
     if (this.hpBar) this.hpBar.visible = false;
     if (this.hpBarBg) this.hpBarBg.visible = false;
     if (this.hpText) this.hpText.visible = false;
-    if (this.timerPanel) this.timerPanel.visible = false;
-    if (this.timerText) this.timerText.visible = false;
-    if (this.parText) this.parText.visible = false;
+    if (this.hordeTimerPanel) this.hordeTimerPanel.visible = false;
+    if (this.hordeTimerText) this.hordeTimerText.visible = false;
 
     // Hide minimap
     if (this.minimap) {
       this.minimap.getContainer().visible = false;
     }
 
-    // Hide hotbar
-    if (this.hotBar) {
-      this.hotBar.setVisible(false);
+
+    // Hide hull overlay
+    if (this.hullOverlay) {
+      this.hullOverlay.visible = false;
     }
 
     // Hide and clear power-up effects
@@ -394,18 +450,22 @@ export class Game {
 
     // Reset level timer and calculate par time (scales with map size)
     this.levelTime = 0;
+    this.levelDamageTaken = 0;
     this.hordeTriggeredThisLevel = false;
     this.hordeTextAnimTime = 0;
     const mapSize = this.getMapSize(level);
-    // Curved time formula: bigger maps get proportionally more time
-    // Level 1 (25): 30s, Level 8 (60): 100s
+    // Curved time formula: bigger maps get some more time but not too much
+    // Level 1 (25): 25s, Level 8 (60): ~55s
     const sizeDiff = mapSize - 25;
-    this.parTime = Math.floor(30 + sizeDiff * (1 + sizeDiff / 35));
+    this.parTime = Math.floor(25 + sizeDiff * 0.85);
 
     // Clear old world objects
     if (this.worldContainer) {
       this.worldContainer.removeChildren();
     }
+
+    // Clear old floating texts (but keep pending bonuses for new level)
+    this.playerFloatingTexts = [];
 
     // Generate new maze
     const generator = new MazeGenerator(mapSize, mapSize);
@@ -440,32 +500,35 @@ export class Game {
     this.fogOfWar = new FogOfWar(this.app, this.maze.width, this.maze.height);
     this.fogOfWar.setTorchRadiusMultiplier(this.torchMultiplier);
 
-    // Initialize zombie manager
-    if (!this.zombieManager) {
-      this.zombieManager = new ZombieManager(this.maze);
+    // Initialize creature manager
+    if (!this.creatureManager) {
+      this.creatureManager = new CreatureManager(this.maze);
     } else {
-      this.zombieManager.setMaze(this.maze);
-      this.zombieManager.clearAll();
+      this.creatureManager.setMaze(this.maze);
+      this.creatureManager.clearAll();
     }
-    this.worldContainer!.addChild(this.zombieManager.getContainer());
+    this.worldContainer!.addChild(this.creatureManager.getContainer());
 
-    // Set zombie scaling for this level
-    const hpMult = 1 + (level - 1) * ZOMBIE_HP_SCALE_PER_LEVEL;
-    const speedMult = 1 + (level - 1) * ZOMBIE_SPEED_SCALE_PER_LEVEL;
-    this.zombieManager.setScaling(hpMult, speedMult);
+    // Set creature scaling for this level
+    const hpMult = 1 + (level - 1) * CRAWLER_HP_SCALE_PER_LEVEL;
+    const speedMult = 1 + (level - 1) * CRAWLER_SPEED_SCALE_PER_LEVEL;
+    this.creatureManager.setScaling(hpMult, speedMult);
 
     // Set spawn rate for this level
-    const spawnRate = ZOMBIE_SPAWN_RATE_BASE + (level - 1) * ZOMBIE_SPAWN_RATE_INCREMENT;
-    this.zombieManager.setSpawnRate(spawnRate);
-    this.zombieManager.resetHordeRush(); // Reset from previous level
+    const spawnRate = CRAWLER_SPAWN_RATE_BASE + (level - 1) * CRAWLER_SPAWN_RATE_INCREMENT;
+    this.creatureManager.setSpawnRate(spawnRate);
 
-    // Set max zombies alive for this level (scales with level, caps at 500)
-    const maxZombies = Math.min(500, 50 + (level - 1) * 30);
-    this.zombieManager.setMaxZombiesAlive(maxZombies);
+    // Set current level for special creature spawning
+    this.creatureManager.setLevel(level);
+    this.creatureManager.resetHordeRush(); // Reset from previous level
+
+    // Set max creatures alive for this level (scales with level, caps at 500)
+    const maxCreatures = Math.min(500, 50 + (level - 1) * 30);
+    this.creatureManager.setMaxCreaturesAlive(maxCreatures);
 
     // Initialize combat system
     if (!this.combatSystem) {
-      this.combatSystem = new CombatSystem(this.zombieManager, this.fogOfWar, this.maze);
+      this.combatSystem = new CombatSystem(this.creatureManager, this.fogOfWar, this.maze);
     } else {
       this.combatSystem.setMaze(this.maze);
       this.combatSystem.setFogOfWar(this.fogOfWar);
@@ -484,9 +547,17 @@ export class Game {
     this.teleportGraphics = new Graphics();
     this.worldContainer!.addChild(this.teleportGraphics);
 
+    // Create shockwave graphics container
+    this.shockwaveGraphics = new Graphics();
+    this.worldContainer!.addChild(this.shockwaveGraphics);
+
     // Reset teleporting state for new level
     this.isTeleporting = false;
     this.teleportProgress = 0;
+
+    // Reset shockwave state for new level
+    this.shockwaveActive = false;
+    this.shockwaveProgress = 0;
 
     // Create torch light visual
     this.createTorchLight();
@@ -499,8 +570,10 @@ export class Game {
       this.uiContainer.removeChild(this.minimap.getContainer());
     }
     // Create new minimap for this level
+    // Insert BEFORE shop so it renders behind shop but above HUD
     this.minimap = new Minimap(this.maze);
-    this.uiContainer!.addChild(this.minimap.getContainer());
+    const shopIndex = this.uiContainer!.getChildIndex(this.shop!.getContainer());
+    this.uiContainer!.addChildAt(this.minimap.getContainer(), shopIndex);
 
     // Initialize power-up system
     if (!this.powerUpSystem) {
@@ -527,8 +600,8 @@ export class Game {
       this.powerUpSystem.spawnRandomPowerUp();
     }
 
-    // Start zombie spawning
-    this.zombieManager.startSpawning();
+    // Start creature spawning
+    this.creatureManager.startSpawning();
   }
 
   private renderMaze(): void {
@@ -536,20 +609,113 @@ export class Game {
 
     this.mazeGraphics = new Graphics();
 
+    // Seeded random for consistent tile variations
+    const seededRandom = (x: number, y: number, seed: number = 0) => {
+      const n = Math.sin(x * 12.9898 + y * 78.233 + seed) * 43758.5453;
+      return n - Math.floor(n);
+    };
+
+    // Check if adjacent tile is a wall
+    const isWallAt = (x: number, y: number) => {
+      if (x < 0 || x >= this.maze!.width || y < 0 || y >= this.maze!.height) return true;
+      return this.maze!.tiles[y][x] === 1;
+    };
+
+    // Render floors - clean with subtle ambient occlusion
     for (let y = 0; y < this.maze.height; y++) {
       for (let x = 0; x < this.maze.width; x++) {
         if (this.maze.tiles[y][x] === 0) {
-          this.mazeGraphics.rect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-          this.mazeGraphics.fill(COLOR_FLOOR);
+          const px = x * TILE_SIZE;
+          const py = y * TILE_SIZE;
+
+          // Count adjacent walls for ambient occlusion
+          let wallCount = 0;
+          if (isWallAt(x - 1, y)) wallCount++;
+          if (isWallAt(x + 1, y)) wallCount++;
+          if (isWallAt(x, y - 1)) wallCount++;
+          if (isWallAt(x, y + 1)) wallCount++;
+
+          // Subtle darkening near walls
+          const darkenAmount = wallCount * 0.015;
+
+          // Floor base color - lighter blue-gray tone to contrast with walls
+          const baseR = 0x22;
+          const baseG = 0x24;
+          const baseB = 0x28;
+
+          const floorR = Math.max(0, baseR - Math.floor(darkenAmount * 255));
+          const floorG = Math.max(0, baseG - Math.floor(darkenAmount * 255));
+          const floorB = Math.max(0, baseB - Math.floor(darkenAmount * 255));
+          const floorColor = (floorR << 16) | (floorG << 8) | floorB;
+
+          // Draw clean floor tile
+          this.mazeGraphics.rect(px, py, TILE_SIZE, TILE_SIZE);
+          this.mazeGraphics.fill(floorColor);
         }
       }
     }
 
+    // Render walls - darker with rocky texture
     for (let y = 0; y < this.maze.height; y++) {
       for (let x = 0; x < this.maze.width; x++) {
         if (this.maze.tiles[y][x] === 1) {
-          this.mazeGraphics.rect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-          this.mazeGraphics.fill(COLOR_WALL);
+          const px = x * TILE_SIZE;
+          const py = y * TILE_SIZE;
+
+          // Wall base color - darker brown-gray for contrast
+          const baseR = 0x14;
+          const baseG = 0x12;
+          const baseB = 0x10;
+          const variation = (seededRandom(x, y) - 0.5) * 12;
+          const wallR = Math.max(0, Math.min(255, baseR + variation));
+          const wallG = Math.max(0, Math.min(255, baseG + variation * 0.8));
+          const wallB = Math.max(0, Math.min(255, baseB + variation * 0.6));
+          const wallColor = (wallR << 16) | (wallG << 8) | wallB;
+
+          // Draw base wall
+          this.mazeGraphics.rect(px, py, TILE_SIZE, TILE_SIZE);
+          this.mazeGraphics.fill(wallColor);
+
+          // Add rocky texture bumps
+          const numBumps = 2 + Math.floor(seededRandom(x, y, 10) * 3);
+          for (let i = 0; i < numBumps; i++) {
+            const bumpX = px + seededRandom(x, y, 11 + i * 3) * TILE_SIZE;
+            const bumpY = py + seededRandom(x, y, 12 + i * 3) * TILE_SIZE;
+            const bumpSize = 4 + seededRandom(x, y, 13 + i * 3) * 8;
+            const bumpBright = seededRandom(x, y, 14 + i * 3) > 0.5;
+            const bumpColor = bumpBright ? wallColor + 0x080808 : Math.max(0, wallColor - 0x050505);
+
+            this.mazeGraphics.circle(bumpX, bumpY, bumpSize);
+            this.mazeGraphics.fill({ color: bumpColor, alpha: 0.5 });
+          }
+        }
+      }
+    }
+
+    // Third pass: Draw clear borders between floors and walls
+    for (let y = 0; y < this.maze.height; y++) {
+      for (let x = 0; x < this.maze.width; x++) {
+        if (this.maze.tiles[y][x] === 0) {
+          const px = x * TILE_SIZE;
+          const py = y * TILE_SIZE;
+
+          // Draw dark border on edges adjacent to walls
+          if (isWallAt(x - 1, y)) {
+            this.mazeGraphics.rect(px, py, 3, TILE_SIZE);
+            this.mazeGraphics.fill({ color: 0x0a0a0a, alpha: 0.8 });
+          }
+          if (isWallAt(x + 1, y)) {
+            this.mazeGraphics.rect(px + TILE_SIZE - 3, py, 3, TILE_SIZE);
+            this.mazeGraphics.fill({ color: 0x0a0a0a, alpha: 0.8 });
+          }
+          if (isWallAt(x, y - 1)) {
+            this.mazeGraphics.rect(px, py, TILE_SIZE, 3);
+            this.mazeGraphics.fill({ color: 0x0a0a0a, alpha: 0.8 });
+          }
+          if (isWallAt(x, y + 1)) {
+            this.mazeGraphics.rect(px, py + TILE_SIZE - 3, TILE_SIZE, 3);
+            this.mazeGraphics.fill({ color: 0x0a0a0a, alpha: 0.8 });
+          }
         }
       }
     }
@@ -642,49 +808,48 @@ export class Game {
   private createHUD(): void {
     if (!this.uiContainer) return;
 
-    // === LEFT PANEL (Stats) ===
+    // HUD panel with futuristic frame
     this.hudPanel = new Graphics();
     this.uiContainer.addChild(this.hudPanel);
 
-    // Level text
+    // Level text - clean futuristic style
     const levelStyle = new TextStyle({
-      fontFamily: 'Arial Black, sans-serif',
-      fontSize: 22,
-      fill: 0xffdd44,
+      fontFamily: 'Consolas, Monaco, monospace',
+      fontSize: 18,
+      fill: 0x44ffaa,
       fontWeight: 'bold',
-      dropShadow: { color: 0x000000, blur: 2, distance: 1 },
+      letterSpacing: 3,
     });
     this.hudLevelText = new Text({ text: 'LEVEL 1', style: levelStyle });
     this.uiContainer.addChild(this.hudLevelText);
 
-    // Zombie count
+    // Zombie count (hidden but kept for compatibility)
     const zombieStyle = new TextStyle({
-      fontFamily: 'Arial, sans-serif',
+      fontFamily: 'Consolas, Monaco, monospace',
       fontSize: 14,
       fill: 0xcccccc,
-      dropShadow: { color: 0x000000, blur: 2, distance: 1 },
+      fontWeight: 'bold',
     });
-    this.hudZombieText = new Text({ text: 'Zombies: 0', style: zombieStyle });
+    this.hudZombieText = new Text({ text: '', style: zombieStyle });
     this.uiContainer.addChild(this.hudZombieText);
 
-    // Points
+    // Points - clean monospace
     const pointsStyle = new TextStyle({
-      fontFamily: 'Arial Black, sans-serif',
+      fontFamily: 'Consolas, Monaco, monospace',
       fontSize: 16,
-      fill: 0xffaa00,
+      fill: 0xffcc44,
       fontWeight: 'bold',
-      dropShadow: { color: 0x000000, blur: 2, distance: 1 },
+      letterSpacing: 1,
     });
     this.hudPointsText = new Text({ text: '0 PTS', style: pointsStyle });
     this.uiContainer.addChild(this.hudPointsText);
 
     // Horde warning (hidden by default)
     const hordeStyle = new TextStyle({
-      fontFamily: 'Arial Black, sans-serif',
+      fontFamily: 'Consolas, Monaco, monospace',
       fontSize: 14,
       fill: 0xff4444,
       fontWeight: 'bold',
-      dropShadow: { color: 0x000000, blur: 3, distance: 1 },
     });
     this.hudHordeText = new Text({ text: 'HORDE INCOMING!', style: hordeStyle });
     this.hudHordeText.visible = false;
@@ -698,62 +863,53 @@ export class Game {
     this.hpBar = new Graphics();
     this.uiContainer.addChild(this.hpBar);
 
-    // HP text
+    // HP text - clean monospace
     const hpTextStyle = new TextStyle({
-      fontFamily: 'Arial, sans-serif',
-      fontSize: 11,
+      fontFamily: 'Consolas, Monaco, monospace',
+      fontSize: 12,
       fill: 0xffffff,
       fontWeight: 'bold',
+      letterSpacing: 1,
     });
     this.hpText = new Text({ text: '', style: hpTextStyle });
     this.hpText.anchor.set(0.5, 0.5);
     this.uiContainer.addChild(this.hpText);
 
-    // Legacy hudText (kept for digging status, etc.)
+    // Status text (teleporting, etc.)
     const style = new TextStyle({
-      fontFamily: 'Arial, sans-serif',
-      fontSize: 12,
-      fill: 0xaaaaaa,
-      dropShadow: { color: 0x000000, blur: 2, distance: 1 },
+      fontFamily: 'Consolas, Monaco, monospace',
+      fontSize: 11,
+      fill: 0x88ccaa,
+      letterSpacing: 1,
     });
     this.hudText = new Text({ text: '', style });
     this.uiContainer.addChild(this.hudText);
 
-    // === CENTER PANEL (Timer) ===
-    this.timerPanel = new Graphics();
-    this.uiContainer.addChild(this.timerPanel);
+    // === CENTER (Horde Timer) - Big countdown ===
+    this.hordeTimerPanel = new Graphics();
+    this.uiContainer.addChild(this.hordeTimerPanel);
 
     const timerStyle = new TextStyle({
-      fontFamily: 'Arial Black, sans-serif',
-      fontSize: 24,
-      fill: 0x44ff44,
+      fontFamily: 'Consolas, Monaco, monospace',
+      fontSize: 32,
+      fill: 0xff4444,
       fontWeight: 'bold',
-      dropShadow: { color: 0x000000, blur: 3, distance: 1 },
+      letterSpacing: 4,
     });
-    this.timerText = new Text({ text: '0:00', style: timerStyle });
-    this.timerText.anchor.set(0.5, 0.5);
-    this.uiContainer.addChild(this.timerText);
-
-    const parStyle = new TextStyle({
-      fontFamily: 'Arial, sans-serif',
-      fontSize: 12,
-      fill: 0x888888,
-      dropShadow: { color: 0x000000, blur: 2, distance: 1 },
-    });
-    this.parText = new Text({ text: 'HORDE IN: 0:00', style: parStyle });
-    this.parText.anchor.set(0.5, 0.5);
-    this.uiContainer.addChild(this.parText);
+    this.hordeTimerText = new Text({ text: '0:00', style: timerStyle });
+    this.hordeTimerText.anchor.set(0.5, 0.5);
+    this.uiContainer.addChild(this.hordeTimerText);
 
     // Attraction timer (shows when lantern/flare is active)
     const attractionStyle = new TextStyle({
-      fontFamily: 'Arial Black, sans-serif',
-      fontSize: 16,
+      fontFamily: 'Consolas, Monaco, monospace',
+      fontSize: 14,
       fill: 0xff8844,
       fontWeight: 'bold',
-      dropShadow: { color: 0x000000, blur: 3, distance: 1 },
+      letterSpacing: 1,
     });
     this.attractionTimerText = new Text({ text: '', style: attractionStyle });
-    this.attractionTimerText.anchor.set(1, 0); // Right-aligned
+    this.attractionTimerText.anchor.set(1, 0);
     this.attractionTimerText.visible = false;
     this.uiContainer.addChild(this.attractionTimerText);
   }
@@ -771,12 +927,12 @@ export class Game {
   private showDeathScreen(): void {
     if (!this.uiContainer) return;
 
-    // Hide hotbar and minimap
-    if (this.hotBar) {
-      this.hotBar.setVisible(false);
-    }
+    // Hide minimap and hull overlay
     if (this.minimap) {
       this.minimap.getContainer().visible = false;
+    }
+    if (this.hullOverlay) {
+      this.hullOverlay.visible = false;
     }
     // Hide HUD elements
     if (this.hudPanel) this.hudPanel.visible = false;
@@ -788,9 +944,8 @@ export class Game {
     if (this.hpBar) this.hpBar.visible = false;
     if (this.hpBarBg) this.hpBarBg.visible = false;
     if (this.hpText) this.hpText.visible = false;
-    if (this.timerPanel) this.timerPanel.visible = false;
-    if (this.timerText) this.timerText.visible = false;
-    if (this.parText) this.parText.visible = false;
+    if (this.hordeTimerPanel) this.hordeTimerPanel.visible = false;
+    if (this.hordeTimerText) this.hordeTimerText.visible = false;
 
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -948,17 +1103,22 @@ export class Game {
     this.speedMultiplier = 1;
     this.torchMultiplier = 1;
     this.lanternCount = 2;
-    this.flareCount = 2;
+    this.flareCount = 1;
     this.teleporterCount = 0;
+    this.shockwaveCount = 0;
     this.isTeleporting = false;
     this.teleportProgress = 0;
+    this.shockwaveActive = false;
+    this.shockwaveProgress = 0;
     this.inShop = false;
+    this.pendingBonuses = [];
+    this.playerFloatingTexts = [];
     // Game is now active
 
     // Reset combat system
     if (this.combatSystem) {
       this.combatSystem.resetKillCount();
-      this.combatSystem.setWeapon('pistol');
+      this.combatSystem.resetWeapons();
       this.combatSystem.setDamageMultiplier(1);
       this.combatSystem.setFireRateMultiplier(1);
       this.combatSystem.setScytheEnabled(false);
@@ -985,13 +1145,13 @@ export class Game {
 
     switch (upgrade.id) {
       case 'rifle':
-        this.combatSystem?.setWeapon('rifle');
+        this.combatSystem?.addWeapon('rifle');
         break;
       case 'shotgun':
-        this.combatSystem?.setWeapon('shotgun');
+        this.combatSystem?.addWeapon('shotgun');
         break;
       case 'gatling':
-        this.combatSystem?.setWeapon('gatling');
+        this.combatSystem?.addWeapon('gatling');
         break;
       case 'scythe':
         this.combatSystem?.setScytheEnabled(true);
@@ -1020,13 +1180,28 @@ export class Game {
         this.playerHP = Math.min(this.playerHP + 30, this.playerMaxHP);
         break;
       case 'lantern':
-        this.lanternCount++;
+        if (this.lanternCount < 2) {
+          this.lanternCount++;
+        } else {
+          this.points += upgrade.cost; // Refund if at max
+        }
         break;
       case 'flare':
-        this.flareCount++;
+        if (this.flareCount < 1) {
+          this.flareCount++;
+        } else {
+          this.points += upgrade.cost; // Refund if at max
+        }
         break;
       case 'teleporter':
         this.teleporterCount++;
+        break;
+      case 'shockwave':
+        if (this.shockwaveCount < 3) {
+          this.shockwaveCount++;
+        } else {
+          this.points += upgrade.cost; // Refund if at max
+        }
         break;
     }
 
@@ -1038,8 +1213,8 @@ export class Game {
   private onPowerUpStart(type: PowerUpType): void {
     switch (type) {
       case 'ghost':
-        // Zombies won't target player - handled in ZombieManager
-        this.zombieManager?.setPlayerInvisible(true);
+        // Creatures won't target player - handled in CreatureManager
+        this.creatureManager?.setPlayerInvisible(true);
         break;
       case 'berserker':
         // 2x fire rate
@@ -1061,7 +1236,7 @@ export class Game {
   private onPowerUpEnd(type: PowerUpType): void {
     switch (type) {
       case 'ghost':
-        this.zombieManager?.setPlayerInvisible(false);
+        this.creatureManager?.setPlayerInvisible(false);
         break;
       case 'berserker':
         this.combatSystem?.setFireRateMultiplier(this.fireRateMultiplier);
@@ -1080,7 +1255,7 @@ export class Game {
     if (this.inShop) return; // Prevent multiple calls
 
     this.inShop = true;
-    this.zombieManager?.stopSpawning();
+    this.creatureManager?.stopSpawning();
 
     // Add level time to total time
     this.totalTime += this.levelTime;
@@ -1091,29 +1266,29 @@ export class Game {
     this.cumulativePoints += mapSize;
 
     // Time bonus: extra points for escaping before horde arrives
+    // Points applied when the floating text shows (not now)
     if (this.levelTime < this.parTime) {
       const timeBeforeHorde = this.parTime - this.levelTime;
       const timeBonus = Math.floor(timeBeforeHorde * 2); // 2 points per second early
-      this.points += timeBonus;
-      this.cumulativePoints += timeBonus;
+      // Queue to show above player after new level starts - points applied on display
+      this.pendingBonuses.push({ amount: timeBonus, label: 'BUZZER BEATER', delay: 0.5, applyPoints: true });
     }
 
-    // Hide minimap during shop
-    if (this.minimap) {
-      this.minimap.getContainer().visible = false;
+    // No damage bonus: reward for completing level without taking damage
+    // Points applied when the floating text shows (not now)
+    if (this.levelDamageTaken === 0) {
+      const noDamageBonus = 50 + this.currentLevel * 10; // Scales with level
+      // Queue to show above player after new level starts - points applied on display
+      this.pendingBonuses.push({ amount: noDamageBonus, label: 'UNSCATHED', delay: 1.0, applyPoints: true });
     }
 
-    // Hide only timer during shop - keep HP bar and level info visible
-    if (this.timerPanel) this.timerPanel.visible = false;
-    if (this.timerText) this.timerText.visible = false;
-    if (this.parText) this.parText.visible = false;
-    // Hide points from HUD since shop shows points
-    if (this.hudPointsText) this.hudPointsText.visible = false;
+    // Keep minimap visible during shop (don't hide it)
+
+    // Hide only timer during shop - keep HP bar, level info, and points visible
+    if (this.hordeTimerPanel) this.hordeTimerPanel.visible = false;
+    if (this.hordeTimerText) this.hordeTimerText.visible = false;
     // Hide horde text when level is complete
     if (this.hudHordeText) this.hudHordeText.visible = false;
-
-    // Get current weapon for shop hotbar display
-    const currentWeapon = this.combatSystem?.getWeapon() ?? 'pistol';
 
     this.shop?.open(
       this.points,
@@ -1121,7 +1296,7 @@ export class Game {
       this.playerHP,
       this.playerMaxHP,
       {
-        currentWeapon,
+        currentWeapon: 'pistol', // All weapons now auto-fire
         hasRifle: this.shop?.hasWeapon('rifle') ?? false,
         hasShotgun: this.shop?.hasWeapon('shotgun') ?? false,
         hasGatling: this.shop?.hasWeapon('gatling') ?? false,
@@ -1139,13 +1314,131 @@ export class Game {
     this.shop?.close();
     this.inShop = false;
 
-    // Restore timer and points visibility before starting new level
-    if (this.timerPanel) this.timerPanel.visible = true;
-    if (this.timerText) this.timerText.visible = true;
-    if (this.parText) this.parText.visible = true;
-    if (this.hudPointsText) this.hudPointsText.visible = true;
+    // Restore timer visibility before starting new level
+    if (this.hordeTimerPanel) this.hordeTimerPanel.visible = true;
+    if (this.hordeTimerText) this.hordeTimerText.visible = true;
 
     this.startLevel(this.currentLevel + 1);
+  }
+
+  private completeLevel(): void {
+    // Complete level without opening shop (used for non-shop levels)
+    this.creatureManager?.stopSpawning();
+
+    // Add level time to total time
+    this.totalTime += this.levelTime;
+
+    // Award bonus points for completing the level (equal to map width)
+    const mapSize = this.getMapSize(this.currentLevel);
+    this.points += mapSize;
+    this.cumulativePoints += mapSize;
+
+    // Time bonus: extra points for escaping before horde arrives
+    // Points applied when the floating text shows (not now)
+    if (this.levelTime < this.parTime) {
+      const timeBeforeHorde = this.parTime - this.levelTime;
+      const timeBonus = Math.floor(timeBeforeHorde * 2); // 2 points per second early
+      // Queue to show above player after new level starts - points applied on display
+      this.pendingBonuses.push({ amount: timeBonus, label: 'BUZZER BEATER', delay: 0.5, applyPoints: true });
+    }
+
+    // No damage bonus: reward for completing level without taking damage
+    // Points applied when the floating text shows (not now)
+    if (this.levelDamageTaken === 0) {
+      const noDamageBonus = 50 + this.currentLevel * 10; // Scales with level
+      // Queue to show above player after new level starts - points applied on display
+      this.pendingBonuses.push({ amount: noDamageBonus, label: 'UNSCATHED', delay: 1.0, applyPoints: true });
+    }
+
+    // Go directly to next level
+    this.startLevel(this.currentLevel + 1);
+  }
+
+  private spawnPlayerFloatingText(amount: number, label?: string): void {
+    if (!this.worldContainer) return;
+
+    // Futuristic style matching HUD
+    const style = new TextStyle({
+      fontFamily: 'Consolas, Monaco, monospace',
+      fontSize: label ? 22 : 18,
+      fill: 0x44ffaa,
+      fontWeight: 'bold',
+      letterSpacing: 2,
+      stroke: { color: 0x0a1a15, width: 4 },
+    });
+
+    const displayText = label ? `${label} +${amount}` : `+${amount}`;
+    const text = new Text({ text: displayText, style });
+    text.anchor.set(0.5, 0.5);
+
+    // Stack multiple texts vertically
+    const baseOffset = -60;
+    let offsetY = baseOffset;
+    for (const existing of this.playerFloatingTexts) {
+      if (existing.offsetY <= offsetY + 25 && existing.offsetY >= offsetY - 25) {
+        offsetY = existing.offsetY - 30;
+      }
+    }
+
+    this.worldContainer.addChild(text);
+
+    this.playerFloatingTexts.push({
+      text,
+      lifetime: 1.2,
+      maxLifetime: 1.2,
+      offsetY,
+    });
+  }
+
+  private updatePlayerFloatingTexts(dt: number): void {
+    if (!this.worldContainer) return;
+
+    const toRemove: typeof this.playerFloatingTexts = [];
+
+    for (const ft of this.playerFloatingTexts) {
+      ft.lifetime -= dt;
+      ft.offsetY -= 60 * dt; // Float upward
+
+      // Position above player
+      ft.text.x = this.playerX;
+      ft.text.y = this.playerY + ft.offsetY;
+
+      // Fade out
+      const alpha = Math.max(0, ft.lifetime / ft.maxLifetime);
+      ft.text.alpha = alpha;
+
+      if (ft.lifetime <= 0) {
+        toRemove.push(ft);
+      }
+    }
+
+    for (const ft of toRemove) {
+      this.worldContainer.removeChild(ft.text);
+      const idx = this.playerFloatingTexts.indexOf(ft);
+      if (idx > -1) this.playerFloatingTexts.splice(idx, 1);
+    }
+  }
+
+  private updatePendingBonuses(dt: number): void {
+    const toRemove: typeof this.pendingBonuses = [];
+
+    for (const bonus of this.pendingBonuses) {
+      bonus.delay -= dt;
+      if (bonus.delay <= 0) {
+        // Apply points when the text shows (if flagged)
+        if (bonus.applyPoints) {
+          this.points += bonus.amount;
+          this.cumulativePoints += bonus.amount;
+        }
+        this.spawnPlayerFloatingText(bonus.amount, bonus.label);
+        toRemove.push(bonus);
+      }
+    }
+
+    for (const bonus of toRemove) {
+      const idx = this.pendingBonuses.indexOf(bonus);
+      if (idx > -1) this.pendingBonuses.splice(idx, 1);
+    }
   }
 
   private update = (dt: number): void => {
@@ -1198,7 +1491,7 @@ export class Game {
     if (!this.hordeTriggeredThisLevel && this.levelTime >= this.parTime) {
       this.hordeTriggeredThisLevel = true;
       this.hordeTextAnimTime = 0;
-      this.zombieManager?.triggerHordeRush();
+      this.creatureManager?.triggerHordeRush();
     }
 
     // Update horde text animation
@@ -1207,11 +1500,12 @@ export class Game {
     }
 
     this.updateTeleporting(dt);
+    this.updateShockwave(dt);
     this.updatePlayer(dt);
     this.updateCamera();
     this.handleInput();
     this.updateFogOfWar(dt);
-    this.updateZombies(dt);
+    this.updateCreatures(dt);
     this.updateCombat(dt);
     this.updatePowerUps(dt);
     this.updatePoints();
@@ -1221,6 +1515,8 @@ export class Game {
     this.updateMinimap();
     this.updateHUD();
     this.updateDamageFlash(dt);
+    this.updatePlayerFloatingTexts(dt);
+    this.updatePendingBonuses(dt);
   };
 
   private updatePowerUps(dt: number): void {
@@ -1240,6 +1536,13 @@ export class Game {
   private updatePlayer(dt: number): void {
     // Can't move while teleporting
     if (this.isTeleporting) {
+      this.playerVelX = 0;
+      this.playerVelY = 0;
+      return;
+    }
+
+    // Can't move while rooted (hit by spitter goo)
+    if (this.creatureManager?.isPlayerRooted()) {
       this.playerVelX = 0;
       this.playerVelY = 0;
       return;
@@ -1349,29 +1652,19 @@ export class Game {
       }
     }
 
-    // Weapon switching with number keys
-    if (this.input.isKeyDown('Digit1')) {
-      this.input.consumeKey('Digit1');
-      this.combatSystem?.setWeapon('pistol');
-    }
-    if (this.input.isKeyDown('Digit2') && this.shop?.hasWeapon('rifle')) {
-      this.input.consumeKey('Digit2');
-      this.combatSystem?.setWeapon('rifle');
-    }
-    if (this.input.isKeyDown('Digit3') && this.shop?.hasWeapon('shotgun')) {
-      this.input.consumeKey('Digit3');
-      this.combatSystem?.setWeapon('shotgun');
-    }
-    if (this.input.isKeyDown('Digit5') && this.shop?.hasWeapon('gatling')) {
-      this.input.consumeKey('Digit5');
-      this.combatSystem?.setWeapon('gatling');
-    }
-
     // Teleporter - [4] to start teleporting
     if (this.input.isKeyDown('Digit4')) {
       this.input.consumeKey('Digit4');
       if (this.teleporterCount > 0 && !this.isTeleporting) {
         this.startTeleporting();
+      }
+    }
+
+    // Shockwave - [5] to emit freeze wave
+    if (this.input.isKeyDown('Digit5')) {
+      this.input.consumeKey('Digit5');
+      if (this.shockwaveCount > 0 && !this.shockwaveActive) {
+        this.activateShockwave();
       }
     }
 
@@ -1487,6 +1780,58 @@ export class Game {
     }
   }
 
+  private activateShockwave(): void {
+    this.shockwaveActive = true;
+    this.shockwaveProgress = 0;
+    this.shockwaveCount--;
+
+    // Freeze all enemies within radius
+    this.creatureManager?.freezeEnemiesInRadius(
+      this.playerX,
+      this.playerY,
+      this.SHOCKWAVE_RADIUS,
+      this.SHOCKWAVE_FREEZE_TIME
+    );
+  }
+
+  private updateShockwave(dt: number): void {
+    if (!this.shockwaveActive) return;
+
+    this.shockwaveProgress += dt;
+
+    // Draw expanding shockwave visual
+    if (this.shockwaveGraphics) {
+      this.shockwaveGraphics.clear();
+
+      const progress = this.shockwaveProgress / this.SHOCKWAVE_DURATION;
+      const currentRadius = this.SHOCKWAVE_RADIUS * progress;
+      const alpha = 0.6 * (1 - progress);
+
+      // Outer wave ring
+      this.shockwaveGraphics.circle(this.playerX, this.playerY, currentRadius);
+      this.shockwaveGraphics.stroke({ color: 0x66ddff, width: 4, alpha: alpha });
+
+      // Inner glow
+      this.shockwaveGraphics.circle(this.playerX, this.playerY, currentRadius * 0.9);
+      this.shockwaveGraphics.fill({ color: 0x44ccff, alpha: alpha * 0.3 });
+
+      // Bright center pulse
+      if (progress < 0.3) {
+        const centerAlpha = 0.5 * (1 - progress / 0.3);
+        this.shockwaveGraphics.circle(this.playerX, this.playerY, 40 * (1 - progress));
+        this.shockwaveGraphics.fill({ color: 0xaaeeff, alpha: centerAlpha });
+      }
+    }
+
+    // End shockwave after duration
+    if (this.shockwaveProgress >= this.SHOCKWAVE_DURATION) {
+      this.shockwaveActive = false;
+      this.shockwaveProgress = 0;
+      if (this.shockwaveGraphics) {
+        this.shockwaveGraphics.clear();
+      }
+    }
+  }
 
   private updateFogOfWar(dt: number): void {
     if (!this.fogOfWar) return;
@@ -1495,19 +1840,19 @@ export class Game {
     // Update attraction timers for lanterns and flares
     this.fogOfWar.updateAttractionTimers(dt);
 
-    // Set zombie attraction based on active light sources
+    // Set creature attraction based on active light sources
     const attractionPoint = this.fogOfWar.getAttractionPoint();
     if (attractionPoint) {
-      this.zombieManager?.setAttractionPoint(attractionPoint.x, attractionPoint.y);
+      this.creatureManager?.setAttractionPoint(attractionPoint.x, attractionPoint.y);
     } else {
-      this.zombieManager?.clearAttractionPoint();
+      this.creatureManager?.clearAttractionPoint();
     }
   }
 
-  private updateZombies(dt: number): void {
-    if (!this.zombieManager || !this.fogOfWar) return;
+  private updateCreatures(dt: number): void {
+    if (!this.creatureManager || !this.fogOfWar) return;
 
-    const damage = this.zombieManager.update(dt, this.playerX, this.playerY, this.fogOfWar);
+    const damage = this.creatureManager.update(dt, this.playerX, this.playerY, this.fogOfWar);
 
     if (damage > 0) {
       // Shield power-up blocks damage
@@ -1516,13 +1861,14 @@ export class Game {
         this.damageFlashAlpha = 0.2;
       } else {
         this.playerHP -= damage;
+        this.levelDamageTaken += damage;
         this.damageFlashAlpha = 0.4;
       }
 
       if (this.playerHP <= 0) {
         this.playerHP = 0;
         this.gameOver = true;
-        this.zombieManager?.stopSpawning();
+        this.creatureManager?.stopSpawning();
         // Save high score (add current level time to total)
         const finalTime = this.totalTime + this.levelTime;
         const kills = this.combatSystem?.getKillCount() ?? 0;
@@ -1548,6 +1894,9 @@ export class Game {
       this.points += earned;
       this.cumulativePoints += earned;
       this.lastKillCount = killCount;
+
+      // Show floating points above player
+      this.spawnPlayerFloatingText(earned);
     }
   }
 
@@ -1570,8 +1919,13 @@ export class Game {
     );
 
     if (dist < TILE_SIZE) {
-      // Level complete! Open shop for next level
-      this.openShop();
+      // Level complete! Show shop every 3 levels
+      if (this.currentLevel % 3 === 0) {
+        this.openShop();
+      } else {
+        // Skip shop, go directly to next level (but still award bonuses)
+        this.completeLevel();
+      }
     }
   }
 
@@ -1681,150 +2035,233 @@ export class Game {
 
     if (this.gameOver) return;
 
-    const zombieCount = this.zombieManager?.getAliveCount() ?? 0;
-    const isHordeActive = this.zombieManager?.isHordeRushActive() ?? false;
+    const isHordeActive = this.creatureManager?.isHordeRushActive() ?? false;
 
-    // === TIMER PANEL DIMENSIONS (needed early for horde text positioning) ===
-    const timerPanelWidth = 140;
-    const timerPanelHeight = 55;
-    const timerPanelX = window.innerWidth / 2 - timerPanelWidth / 2;
-    const timerPanelY = 10;
+    // === LEFT PANEL - Futuristic stats (inside hull frame) ===
+    const panelX = 160;
+    const panelY = 140;
+    const panelWidth = 170;
+    const panelHeight = 120;
 
-    // === LEFT PANEL ===
-    const panelX = 10;
-    const panelY = 10;
-    const panelWidth = 180;
-    const panelHeight = 95;
-
-    // Draw panel background
+    // Draw futuristic frame
     this.hudPanel.clear();
+
+    // Outer glow
+    this.hudPanel.roundRect(panelX - 2, panelY - 2, panelWidth + 4, panelHeight + 4, 10);
+    this.hudPanel.fill({ color: 0x44ffaa, alpha: 0.06 });
+
+    // Main background
     this.hudPanel.roundRect(panelX, panelY, panelWidth, panelHeight, 8);
-    this.hudPanel.fill({ color: 0x000000, alpha: 0.7 });
-    this.hudPanel.stroke({ color: 0xffaa00, width: 1, alpha: 0.6 });
+    this.hudPanel.fill({ color: 0x0a1a15, alpha: 0.88 });
+
+    // Thin border
+    this.hudPanel.roundRect(panelX, panelY, panelWidth, panelHeight, 8);
+    this.hudPanel.stroke({ color: 0x44ffaa, width: 1, alpha: 0.4 });
+
+    // Corner accents - top left
+    this.hudPanel.moveTo(panelX, panelY + 18);
+    this.hudPanel.lineTo(panelX, panelY + 8);
+    this.hudPanel.arcTo(panelX, panelY, panelX + 8, panelY, 8);
+    this.hudPanel.lineTo(panelX + 18, panelY);
+    this.hudPanel.stroke({ color: 0x44ffaa, width: 2, alpha: 0.7 });
+
+    // Corner accents - top right
+    this.hudPanel.moveTo(panelX + panelWidth - 18, panelY);
+    this.hudPanel.lineTo(panelX + panelWidth - 8, panelY);
+    this.hudPanel.arcTo(panelX + panelWidth, panelY, panelX + panelWidth, panelY + 8, 8);
+    this.hudPanel.lineTo(panelX + panelWidth, panelY + 18);
+    this.hudPanel.stroke({ color: 0x44ffaa, width: 2, alpha: 0.7 });
+
+    // Corner accents - bottom left
+    this.hudPanel.moveTo(panelX, panelY + panelHeight - 18);
+    this.hudPanel.lineTo(panelX, panelY + panelHeight - 8);
+    this.hudPanel.arcTo(panelX, panelY + panelHeight, panelX + 8, panelY + panelHeight, 8);
+    this.hudPanel.lineTo(panelX + 18, panelY + panelHeight);
+    this.hudPanel.stroke({ color: 0x44ffaa, width: 2, alpha: 0.7 });
+
+    // Corner accents - bottom right
+    this.hudPanel.moveTo(panelX + panelWidth - 18, panelY + panelHeight);
+    this.hudPanel.lineTo(panelX + panelWidth - 8, panelY + panelHeight);
+    this.hudPanel.arcTo(panelX + panelWidth, panelY + panelHeight, panelX + panelWidth, panelY + panelHeight - 8, 8);
+    this.hudPanel.lineTo(panelX + panelWidth, panelY + panelHeight - 18);
+    this.hudPanel.stroke({ color: 0x44ffaa, width: 2, alpha: 0.7 });
 
     // Level text
     if (this.hudLevelText) {
       this.hudLevelText.text = `LEVEL ${this.currentLevel}`;
-      this.hudLevelText.x = panelX + 12;
-      this.hudLevelText.y = panelY + 8;
+      this.hudLevelText.x = panelX + 14;
+      this.hudLevelText.y = panelY + 14;
+      this.hudLevelText.anchor.set(0, 0);
     }
 
-    // Zombie count
+    // Hide enemies count - not needed
     if (this.hudZombieText) {
-      this.hudZombieText.text = `Enemies: ${zombieCount}`;
-      this.hudZombieText.x = panelX + 12;
-      this.hudZombieText.y = panelY + 34;
+      this.hudZombieText.visible = false;
     }
 
-    // Points (second row, right side)
+    // Points
     if (this.hudPointsText) {
       this.hudPointsText.text = `${this.points} PTS`;
-      this.hudPointsText.x = panelX + panelWidth - 12;
-      this.hudPointsText.y = panelY + 34;
-      this.hudPointsText.anchor.set(1, 0);
+      this.hudPointsText.x = panelX + 14;
+      this.hudPointsText.y = panelY + 40;
+      this.hudPointsText.anchor.set(0, 0);
     }
 
-    // Horde warning - positioned under timer panel with animation
+    // Hide the old horde text - we use the timer now
     if (this.hudHordeText) {
-      this.hudHordeText.visible = isHordeActive && !this.inShop;
-      if (isHordeActive && !this.inShop) {
-        // Position under timer panel (center)
-        this.hudHordeText.x = window.innerWidth / 2;
-        this.hudHordeText.y = timerPanelY + timerPanelHeight + 8;
-        this.hudHordeText.anchor.set(0.5, 0);
-
-        // Animate in: scale from 0 to 1 over 0.3s, then pulse
-        const animTime = this.hordeTextAnimTime;
-        if (animTime < 0.3) {
-          // Scale in animation
-          const t = animTime / 0.3;
-          const scale = t * t * (3 - 2 * t); // Smooth ease-in-out
-          this.hudHordeText.scale.set(scale);
-          this.hudHordeText.alpha = scale;
-        } else {
-          // Pulsing effect after initial animation
-          const pulse = 1 + Math.sin((animTime - 0.3) * 6) * 0.1;
-          this.hudHordeText.scale.set(pulse);
-          this.hudHordeText.alpha = 1;
-        }
-      }
+      this.hudHordeText.visible = false;
     }
 
-    // HP bar
-    const hpBarX = panelX + 12;
-    const hpBarY = panelY + 58;
-    const hpBarWidth = panelWidth - 24;
+    // HP bar - futuristic style
+    const hpBarX = panelX + 14;
+    const hpBarY = panelY + 72;
+    const hpBarWidth = panelWidth - 28;
     const hpBarHeight = 22;
 
+    // HP bar outer glow
     this.hpBarBg?.clear();
+    this.hpBarBg?.roundRect(hpBarX - 1, hpBarY - 1, hpBarWidth + 2, hpBarHeight + 2, 5);
+    this.hpBarBg?.fill({ color: 0x44ffaa, alpha: 0.1 });
+
+    // HP bar background
     this.hpBarBg?.roundRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight, 4);
-    this.hpBarBg?.fill({ color: 0x222222, alpha: 0.9 });
-    this.hpBarBg?.stroke({ color: 0x444444, width: 1 });
+    this.hpBarBg?.fill({ color: 0x0a1510, alpha: 0.9 });
+
+    // HP bar border
+    this.hpBarBg?.roundRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight, 4);
+    this.hpBarBg?.stroke({ color: 0x44ffaa, width: 1, alpha: 0.3 });
 
     const hpPercent = this.playerHP / this.playerMaxHP;
-    const hpColor = hpPercent > 0.5 ? 0x44aa44 : hpPercent > 0.25 ? 0xaaaa44 : 0xaa4444;
+    // Futuristic color gradient based on health
+    let hpColor: number;
+    let hpGlow: number;
+    if (hpPercent > 0.5) {
+      hpColor = 0x44ffaa;
+      hpGlow = 0x44ffaa;
+    } else if (hpPercent > 0.25) {
+      hpColor = 0xffcc44;
+      hpGlow = 0xffaa00;
+    } else {
+      hpColor = 0xff4444;
+      hpGlow = 0xff2222;
+    }
+
     this.hpBar.clear();
     if (hpPercent > 0) {
-      this.hpBar.roundRect(hpBarX + 2, hpBarY + 2, (hpBarWidth - 4) * hpPercent, hpBarHeight - 4, 3);
+      // HP fill glow
+      this.hpBar.roundRect(hpBarX + 2, hpBarY + 2, (hpBarWidth - 4) * hpPercent, hpBarHeight - 4, 2);
+      this.hpBar.fill({ color: hpGlow, alpha: 0.3 });
+
+      // HP fill
+      this.hpBar.roundRect(hpBarX + 3, hpBarY + 3, (hpBarWidth - 6) * hpPercent, hpBarHeight - 6, 2);
       this.hpBar.fill(hpColor);
     }
 
     // HP text
     if (this.hpText) {
-      this.hpText.text = `${Math.floor(this.playerHP)} / ${Math.floor(this.playerMaxHP)}`;
+      this.hpText.text = `${Math.floor(this.playerHP)}/${Math.floor(this.playerMaxHP)}`;
       this.hpText.x = hpBarX + hpBarWidth / 2;
       this.hpText.y = hpBarY + hpBarHeight / 2;
     }
 
-    // Status text (teleporting, etc.)
+    // Status text
     if (this.hudText) {
-      const teleportingText = this.isTeleporting ? `TELEPORTING... ${(2 - this.teleportProgress).toFixed(1)}s` : '';
+      const teleportingText = this.isTeleporting ? `TELEPORT ${(2 - this.teleportProgress).toFixed(1)}s` : '';
       this.hudText.text = teleportingText;
-      this.hudText.x = panelX + 12;
-      this.hudText.y = panelY + panelHeight + 8;
+      this.hudText.x = panelX + 14;
+      this.hudText.y = panelY + panelHeight + 10;
     }
 
-    // === CENTER PANEL (Timer) ===
-    this.timerPanel?.clear();
-    this.timerPanel?.roundRect(timerPanelX, timerPanelY, timerPanelWidth, timerPanelHeight, 8);
-    this.timerPanel?.fill({ color: 0x000000, alpha: 0.7 });
-    this.timerPanel?.stroke({ color: 0xffaa00, width: 1, alpha: 0.6 });
+    // === BOTTOM LEFT (Horde Timer) - Futuristic style (inside hull frame) ===
+    const timerX = 160;
+    const timerWidth = 120;
+    const timerHeight = 60;
+    const timerY = window.innerHeight - timerHeight - 220;
+    const timeRemaining = Math.max(0, this.parTime - this.levelTime);
 
-    if (this.timerText) {
-      const minutes = Math.floor(this.levelTime / 60);
-      const seconds = Math.floor(this.levelTime % 60);
-      const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    // Draw futuristic timer frame
+    this.hordeTimerPanel?.clear();
 
-      const underPar = this.levelTime < this.parTime;
-      this.timerText.style.fill = underPar ? 0x44ff44 : 0xff6644;
-      this.timerText.text = timeStr;
-      this.timerText.x = window.innerWidth / 2;
-      this.timerText.y = timerPanelY + 20;
-    }
+    // Outer glow - color changes based on time
+    const timerGlowColor = isHordeActive ? 0xff4444 : (timeRemaining < 10 ? 0xff6644 : 0x44ffaa);
+    this.hordeTimerPanel?.roundRect(timerX - 2, timerY - 2, timerWidth + 4, timerHeight + 4, 10);
+    this.hordeTimerPanel?.fill({ color: timerGlowColor, alpha: 0.08 });
 
-    if (this.parText) {
-      // Show countdown to horde, hide once horde is active
-      if (isHordeActive) {
-        this.parText.visible = false;
-      } else {
-        this.parText.visible = true;
-        const timeRemaining = Math.max(0, this.parTime - this.levelTime);
-        const remainMinutes = Math.floor(timeRemaining / 60);
-        const remainSeconds = Math.floor(timeRemaining % 60);
-        const countdownStr = `HORDE IN: ${remainMinutes}:${remainSeconds.toString().padStart(2, '0')}`;
-        this.parText.text = countdownStr;
+    // Main background
+    const timerBgColor = isHordeActive ? 0x1a0808 : 0x0a1a15;
+    this.hordeTimerPanel?.roundRect(timerX, timerY, timerWidth, timerHeight, 8);
+    this.hordeTimerPanel?.fill({ color: timerBgColor, alpha: 0.88 });
 
-        // Color changes as time runs out
+    // Border
+    const timerBorderColor = isHordeActive ? 0xff4444 : (timeRemaining < 10 ? 0xff6644 : 0x44ffaa);
+    this.hordeTimerPanel?.roundRect(timerX, timerY, timerWidth, timerHeight, 8);
+    this.hordeTimerPanel?.stroke({ color: timerBorderColor, width: 1, alpha: 0.4 });
+
+    // Corner accents
+    this.hordeTimerPanel?.moveTo(timerX, timerY + 15);
+    this.hordeTimerPanel?.lineTo(timerX, timerY + 8);
+    this.hordeTimerPanel?.arcTo(timerX, timerY, timerX + 8, timerY, 8);
+    this.hordeTimerPanel?.lineTo(timerX + 15, timerY);
+    this.hordeTimerPanel?.stroke({ color: timerBorderColor, width: 2, alpha: 0.7 });
+
+    this.hordeTimerPanel?.moveTo(timerX + timerWidth - 15, timerY);
+    this.hordeTimerPanel?.lineTo(timerX + timerWidth - 8, timerY);
+    this.hordeTimerPanel?.arcTo(timerX + timerWidth, timerY, timerX + timerWidth, timerY + 8, 8);
+    this.hordeTimerPanel?.lineTo(timerX + timerWidth, timerY + 15);
+    this.hordeTimerPanel?.stroke({ color: timerBorderColor, width: 2, alpha: 0.7 });
+
+    this.hordeTimerPanel?.moveTo(timerX, timerY + timerHeight - 15);
+    this.hordeTimerPanel?.lineTo(timerX, timerY + timerHeight - 8);
+    this.hordeTimerPanel?.arcTo(timerX, timerY + timerHeight, timerX + 8, timerY + timerHeight, 8);
+    this.hordeTimerPanel?.lineTo(timerX + 15, timerY + timerHeight);
+    this.hordeTimerPanel?.stroke({ color: timerBorderColor, width: 2, alpha: 0.7 });
+
+    this.hordeTimerPanel?.moveTo(timerX + timerWidth - 15, timerY + timerHeight);
+    this.hordeTimerPanel?.lineTo(timerX + timerWidth - 8, timerY + timerHeight);
+    this.hordeTimerPanel?.arcTo(timerX + timerWidth, timerY + timerHeight, timerX + timerWidth, timerY + timerHeight - 8, 8);
+    this.hordeTimerPanel?.lineTo(timerX + timerWidth, timerY + timerHeight - 15);
+    this.hordeTimerPanel?.stroke({ color: timerBorderColor, width: 2, alpha: 0.7 });
+
+    if (!isHordeActive) {
+      // Countdown mode
+      const remainMinutes = Math.floor(timeRemaining / 60);
+      const remainSeconds = Math.floor(timeRemaining % 60);
+      const countdownStr = `${remainMinutes}:${remainSeconds.toString().padStart(2, '0')}`;
+
+      if (this.hordeTimerText) {
+        this.hordeTimerText.text = countdownStr;
+        this.hordeTimerText.x = timerX + timerWidth / 2;
+        this.hordeTimerText.y = timerY + timerHeight / 2;
+        this.hordeTimerText.anchor.set(0.5, 0.5);
+
+        // Color intensifies as time runs out
         if (timeRemaining > 15) {
-          this.parText.style.fill = 0x888888;
+          this.hordeTimerText.style.fill = 0x44ffaa;
         } else if (timeRemaining > 5) {
-          this.parText.style.fill = 0xffaa44;
+          this.hordeTimerText.style.fill = 0xffcc44;
         } else {
-          this.parText.style.fill = 0xff4444;
+          // Pulse in final seconds
+          const pulse = Math.sin(this.levelTime * 8) * 0.3 + 0.7;
+          const intensity = Math.floor(255 * pulse);
+          this.hordeTimerText.style.fill = (intensity << 16) | 0x4444;
         }
+        this.hordeTimerText.alpha = 1;
+        this.hordeTimerText.scale.set(1);
       }
-      this.parText.x = window.innerWidth / 2;
-      this.parText.y = timerPanelY + 43;
+    } else {
+      // MAYDAY mode
+      if (this.hordeTimerText) {
+        this.hordeTimerText.text = 'MAYDAY';
+        this.hordeTimerText.x = timerX + timerWidth / 2;
+        this.hordeTimerText.y = timerY + timerHeight / 2;
+        this.hordeTimerText.anchor.set(0.5, 0.5);
+        this.hordeTimerText.style.fill = 0xff4444;
+
+        // Flash effect
+        const flashCycle = (Math.sin(this.hordeTextAnimTime * Math.PI) + 1) / 2;
+        this.hordeTimerText.alpha = 0.5 + flashCycle * 0.5;
+        this.hordeTimerText.scale.set(1 + flashCycle * 0.03);
+      }
     }
 
     // === ATTRACTION TIMER (right side, below power-ups) ===
@@ -1833,104 +2270,33 @@ export class Game {
       if (attraction) {
         this.attractionTimerText.visible = true;
         const timeLeft = attraction.timeRemaining.toFixed(1);
-        this.attractionTimerText.text = `🔥 LURE: ${timeLeft}s`;
+        this.attractionTimerText.text = `LURE: ${timeLeft}s`;
         this.attractionTimerText.x = window.innerWidth - 20;
-        this.attractionTimerText.y = 160; // Below power-up effects area
+        this.attractionTimerText.y = 160;
 
-        // Change color as time runs out
         const ratio = attraction.timeRemaining / attraction.maxTime;
         if (ratio > 0.5) {
-          this.attractionTimerText.style.fill = 0xff8844; // Orange
+          this.attractionTimerText.style.fill = 0xff8844;
         } else if (ratio > 0.25) {
-          this.attractionTimerText.style.fill = 0xffaa00; // Yellow-orange
+          this.attractionTimerText.style.fill = 0xffaa00;
         } else {
-          this.attractionTimerText.style.fill = 0xff4444; // Red (fading)
+          this.attractionTimerText.style.fill = 0xff4444;
         }
       } else {
         this.attractionTimerText.visible = false;
       }
     }
 
-    // Update hotbar
-    this.updateHotBar();
-  }
+    // === UPDATE HOTBAR ===
+    if (this.hotBar) {
+      this.hotBar.update([
+        { id: 'lantern', hotkey: 'E', label: 'Lantern', count: this.lanternCount },
+        { id: 'flare', hotkey: 'F', label: 'Flare', count: this.flareCount },
+        { id: 'teleporter', hotkey: '4', label: 'Teleport', count: this.teleporterCount },
+        { id: 'shockwave', hotkey: '5', label: 'Shock', count: this.shockwaveCount },
+      ]);
+    }
 
-  private updateHotBar(): void {
-    if (!this.hotBar) return;
-
-    const currentWeapon = this.combatSystem?.getWeapon() ?? 'pistol';
-
-    const slots: HotBarSlot[] = [
-      // Weapon slots - one per weapon
-      {
-        id: 'pistol',
-        hotkey: '1',
-        label: 'Pistol',
-        type: 'weapon',
-        owned: true,
-        active: currentWeapon === 'pistol',
-      },
-      {
-        id: 'rifle',
-        hotkey: '2',
-        label: 'Rifle',
-        type: 'weapon',
-        owned: this.shop?.hasWeapon('rifle') ?? false,
-        active: currentWeapon === 'rifle',
-      },
-      {
-        id: 'shotgun',
-        hotkey: '3',
-        label: 'Shotgun',
-        type: 'weapon',
-        owned: this.shop?.hasWeapon('shotgun') ?? false,
-        active: currentWeapon === 'shotgun',
-      },
-      // Gadget slots
-      {
-        id: 'teleporter',
-        hotkey: '4',
-        label: 'Teleporter',
-        type: 'gadget',
-        count: this.teleporterCount,
-        owned: this.teleporterCount > 0,
-      },
-      {
-        id: 'gatling',
-        hotkey: '5',
-        label: 'Gatling',
-        type: 'weapon',
-        owned: this.shop?.hasWeapon('gatling') ?? false,
-        active: currentWeapon === 'gatling',
-      },
-      {
-        id: 'scythe',
-        hotkey: '6',
-        label: 'Scythe',
-        type: 'passive',
-        owned: this.shop?.hasWeapon('scythe') ?? false,
-        active: this.combatSystem?.hasScytheEnabled() ?? false,
-      },
-      // Utility slots
-      {
-        id: 'lantern',
-        hotkey: 'E',
-        label: 'Lantern',
-        type: 'utility',
-        count: this.lanternCount,
-        owned: this.lanternCount > 0,
-      },
-      {
-        id: 'flare',
-        hotkey: 'F',
-        label: 'Flare',
-        type: 'utility',
-        count: this.flareCount,
-        owned: this.flareCount > 0,
-      },
-    ];
-
-    this.hotBar.update(slots);
   }
 
   private updateDamageFlash(dt: number): void {
