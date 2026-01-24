@@ -2,6 +2,7 @@ import { Graphics, Container, Text, TextStyle } from 'pixi.js';
 import { Creature, CreatureManager } from './CreatureManager';
 import { FogOfWar } from './FogOfWar';
 import { MazeData, MazeGenerator } from './MazeGenerator';
+import { SoundManager } from './SoundManager';
 import {
   BULLET_SPEED,
   PISTOL_DAMAGE,
@@ -115,6 +116,7 @@ export class CombatSystem {
   private scytheAngle = 0;
   private scytheGraphics: Graphics | null = null;
   private scytheHitCooldowns: Map<number, number> = new Map(); // creature id -> cooldown
+  private scytheSoundCooldown = 0;
 
   constructor(creatureManager: CreatureManager, fogOfWar: FogOfWar, maze: MazeData) {
     this.creatureManager = creatureManager;
@@ -328,6 +330,13 @@ export class CombatSystem {
     // Update scythe rotation
     this.scytheAngle += dt * SCYTHE_ROTATION_SPEED * Math.PI * 2;
 
+    // Play scythe swing sound periodically
+    this.scytheSoundCooldown -= dt;
+    if (this.scytheSoundCooldown <= 0) {
+      SoundManager.play('scythe', 0.15);
+      this.scytheSoundCooldown = 0.5; // Play every 0.5 seconds
+    }
+
     // Calculate scythe blade position
     const radius = this.getScytheRadius();
     const bladeX = playerX + Math.cos(this.scytheAngle) * radius;
@@ -385,8 +394,12 @@ export class CombatSystem {
         const killed = this.creatureManager.damageCreature(creature.id, damage);
         this.spawnDamageNumber(creature.x, creature.y, damage);
 
+        // Play scythe hit sound
+        SoundManager.play('scythe_hit', 0.25);
+
         if (killed) {
           this.killCount++;
+          SoundManager.play('enemy_killed', 0.4);
         }
 
         // Set hit cooldown
@@ -431,6 +444,9 @@ export class CombatSystem {
     // If creature is at exact player position, pick a random direction
     const baseAngle = dist < 1 ? Math.random() * Math.PI * 2 : Math.atan2(dy, dx);
     const stats = WEAPON_STATS[weapon];
+
+    // Play weapon sound
+    SoundManager.play(weapon, 0.3);
 
     if (weapon === 'shotgun') {
       // Shotgun fires multiple smaller pellets in a spread
@@ -509,8 +525,12 @@ export class CombatSystem {
           // Show floating damage number
           this.spawnDamageNumber(creature.x, creature.y, damage);
 
+          // Play hit/kill sounds
           if (killed) {
             this.killCount++;
+            SoundManager.play('enemy_killed', 0.4);
+          } else {
+            SoundManager.play('enemy_hit', 0.25);
           }
 
           bulletsToRemove.push(bullet);

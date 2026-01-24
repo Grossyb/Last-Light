@@ -6,6 +6,7 @@ import { FogOfWar } from '@/systems/FogOfWar';
 import { CreatureManager } from '@/systems/CreatureManager';
 import { CombatSystem } from '@/systems/CombatSystem';
 import { PowerUpSystem, PowerUpType } from '@/systems/PowerUpSystem';
+import { SoundManager } from '@/systems/SoundManager';
 import { Minimap } from '@/ui/Minimap';
 import { Shop, Upgrade } from '@/ui/Shop';
 import { TitleScreen } from '@/ui/TitleScreen';
@@ -99,6 +100,9 @@ export class Game {
   // Exit
   private exitMarker: Graphics | null = null;
   private exitDiscovered = false;
+  private exitAnimTime = 0;
+  private exitX = 0;
+  private exitY = 0;
 
   // Systems
   private fogOfWar: FogOfWar | null = null;
@@ -194,6 +198,9 @@ export class Game {
     this.lanternTexture = await Assets.load('/lantern_sprite.png');
     this.flareTexture = await Assets.load('/flare_sprite.png');
     this.hullTexture = await Assets.load('/armory_hull.png');
+
+    // Load sounds
+    await SoundManager.load();
 
     // Remove default margins/padding for true fullscreen
     document.body.style.margin = '0';
@@ -306,6 +313,11 @@ export class Game {
       this.updateHullOverlay();
     }
 
+    // Show hotbar
+    if (this.hotBar) {
+      this.hotBar.setVisible(true);
+    }
+
     // Reset timer
     this.totalTime = 0;
     this.levelTime = 0;
@@ -353,6 +365,12 @@ export class Game {
     this.shop.setRestartCallback(this.goToMainMenu.bind(this));
     this.shop.setCloseCallback(this.closeShop.bind(this));
     this.uiContainer!.addChildAt(this.shop.getContainer(), 0);
+
+    // Ensure hotbar stays on top of hull (re-add to top of z-order)
+    if (this.hotBar && this.uiContainer) {
+      this.uiContainer.removeChild(this.hotBar.getContainer());
+      this.uiContainer.addChild(this.hotBar.getContainer());
+    }
 
     // Start level 1
     this.startLevel(1);
@@ -424,6 +442,11 @@ export class Game {
     // Hide hull overlay
     if (this.hullOverlay) {
       this.hullOverlay.visible = false;
+    }
+
+    // Hide hotbar
+    if (this.hotBar) {
+      this.hotBar.setVisible(false);
     }
 
     // Hide and clear power-up effects
@@ -731,12 +754,92 @@ export class Game {
       this.maze.exitRoom.centerY
     );
 
+    this.exitX = exitPos.x;
+    this.exitY = exitPos.y;
+    this.exitAnimTime = 0;
+
     this.exitMarker = new Graphics();
-    this.exitMarker.rect(-TILE_SIZE, -TILE_SIZE, TILE_SIZE * 2, TILE_SIZE * 2);
-    this.exitMarker.fill(0x44ff44);
     this.exitMarker.x = exitPos.x;
     this.exitMarker.y = exitPos.y;
     this.worldContainer.addChild(this.exitMarker);
+
+    // Initial draw
+    this.drawExitBeacon(0);
+  }
+
+  private drawExitBeacon(time: number): void {
+    if (!this.exitMarker) return;
+
+    this.exitMarker.clear();
+
+    const pulse = Math.sin(time * 3) * 0.3 + 0.7; // 0.4 to 1.0
+    const fastPulse = Math.sin(time * 6) * 0.5 + 0.5;
+    const rotation = time * 1.5;
+
+    // Outer glow (large, faint)
+    this.exitMarker.circle(0, 0, TILE_SIZE * 1.8);
+    this.exitMarker.fill({ color: 0x00ffaa, alpha: 0.1 * pulse });
+
+    // Middle glow ring
+    this.exitMarker.circle(0, 0, TILE_SIZE * 1.3);
+    this.exitMarker.fill({ color: 0x00ffcc, alpha: 0.15 * pulse });
+
+    // Base platform (dark with glowing edge)
+    this.exitMarker.circle(0, 0, TILE_SIZE * 0.9);
+    this.exitMarker.fill({ color: 0x113322, alpha: 0.9 });
+    this.exitMarker.circle(0, 0, TILE_SIZE * 0.9);
+    this.exitMarker.stroke({ color: 0x00ffaa, width: 3, alpha: 0.8 });
+
+    // Inner rings (rotating effect via segments)
+    const ringRadius = TILE_SIZE * 0.7;
+    const segments = 8;
+    for (let i = 0; i < segments; i++) {
+      const angle = rotation + (Math.PI * 2 * i) / segments;
+      const nextAngle = rotation + (Math.PI * 2 * (i + 0.4)) / segments;
+      const alpha = (i % 2 === 0) ? 0.8 : 0.3;
+
+      this.exitMarker.moveTo(0, 0);
+      this.exitMarker.arc(0, 0, ringRadius, angle, nextAngle);
+      this.exitMarker.lineTo(0, 0);
+      this.exitMarker.fill({ color: 0x00ffdd, alpha: alpha * pulse });
+    }
+
+    // Center portal swirl
+    const swirlRadius = TILE_SIZE * 0.5;
+    this.exitMarker.circle(0, 0, swirlRadius);
+    this.exitMarker.fill({ color: 0x000000, alpha: 0.8 });
+
+    // Portal spiral effect
+    for (let i = 0; i < 3; i++) {
+      const spiralAngle = -rotation * 2 + (Math.PI * 2 * i) / 3;
+      const armLength = swirlRadius * 0.8;
+      const x1 = Math.cos(spiralAngle) * armLength * 0.2;
+      const y1 = Math.sin(spiralAngle) * armLength * 0.2;
+      const x2 = Math.cos(spiralAngle) * armLength;
+      const y2 = Math.sin(spiralAngle) * armLength;
+
+      this.exitMarker.moveTo(x1, y1);
+      this.exitMarker.lineTo(x2, y2);
+      this.exitMarker.stroke({ color: 0x44ffdd, width: 4, alpha: 0.7 * fastPulse });
+    }
+
+    // Center bright core
+    this.exitMarker.circle(0, 0, TILE_SIZE * 0.15);
+    this.exitMarker.fill({ color: 0xaaffee, alpha: 0.9 * fastPulse });
+    this.exitMarker.circle(0, 0, TILE_SIZE * 0.08);
+    this.exitMarker.fill({ color: 0xffffff, alpha: 1 });
+
+    // Vertical beam effect (lines going up)
+    const beamHeight = TILE_SIZE * 2;
+    for (let i = 0; i < 4; i++) {
+      const beamAngle = rotation * 0.5 + (Math.PI * 2 * i) / 4;
+      const bx = Math.cos(beamAngle) * TILE_SIZE * 0.3;
+      const by = Math.sin(beamAngle) * TILE_SIZE * 0.3;
+
+      this.exitMarker.moveTo(bx, by);
+      this.exitMarker.lineTo(bx * 0.5, -beamHeight * pulse);
+      this.exitMarker.stroke({ color: 0x00ffaa, width: 2, alpha: 0.4 * pulse });
+    }
   }
 
   private createPlayer(): void {
@@ -1510,6 +1613,7 @@ export class Game {
     this.updatePowerUps(dt);
     this.updatePoints();
     this.updateLanternAndFlareVisuals();
+    this.updateExitBeacon(dt);
     this.checkExitDiscovery();
     this.checkWinCondition(dt);
     this.updateMinimap();
@@ -1638,6 +1742,7 @@ export class Game {
       if (this.lanternCount > 0 && this.fogOfWar) {
         this.fogOfWar.placeLantern(this.playerX, this.playerY);
         this.lanternCount--;
+        SoundManager.play('lantern', 0.4);
       }
     }
 
@@ -1676,6 +1781,7 @@ export class Game {
     this.teleportStartX = this.playerX;
     this.teleportStartY = this.playerY;
     this.teleporterCount--;
+    SoundManager.play('teleport', 0.5);
   }
 
   private updateTeleporting(dt: number): void {
@@ -1784,6 +1890,7 @@ export class Game {
     this.shockwaveActive = true;
     this.shockwaveProgress = 0;
     this.shockwaveCount--;
+    SoundManager.play('shockwave', 0.5);
 
     // Freeze all enemies within radius
     this.creatureManager?.freezeEnemiesInRadius(
@@ -1863,6 +1970,7 @@ export class Game {
         this.playerHP -= damage;
         this.levelDamageTaken += damage;
         this.damageFlashAlpha = 0.4;
+        SoundManager.play('player_hit', 0.15);
       }
 
       if (this.playerHP <= 0) {
@@ -1999,6 +2107,11 @@ export class Game {
       this.flyingFlareGraphics.circle(flare.x, flare.y, 5);
       this.flyingFlareGraphics.fill(0xffaa00);
     }
+  }
+
+  private updateExitBeacon(dt: number): void {
+    this.exitAnimTime += dt;
+    this.drawExitBeacon(this.exitAnimTime);
   }
 
   private checkExitDiscovery(): void {

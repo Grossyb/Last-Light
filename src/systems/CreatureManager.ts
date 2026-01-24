@@ -105,8 +105,8 @@ const GOO_ROOT_DURATION = 1; // seconds player is rooted
 
 const BROODMOTHER_HP = 80;
 const BROODMOTHER_SPAWN_COOLDOWN = 5; // seconds between spawns
-const BROODMOTHER_SPAWN_COUNT = 10; // crawlers per spawn
-const BROODMOTHER_SIZE = CRAWLER_SIZE * 1.5; // 1.5x size
+const BROODMOTHER_SPAWN_COUNT = 5; // crawlers per spawn
+const BROODMOTHER_SIZE = CRAWLER_SIZE * 1.5; // 1.5x crawler collision size
 
 // Level thresholds for spawning special creatures
 const SPITTER_START_LEVEL = 3;
@@ -195,10 +195,11 @@ export class CreatureManager {
       this.broodMotherTexture = await Assets.load('/mother_sprite.png');
       this.broodMotherLoaded = true;
       // Update existing brood mothers to use the texture
+      // 1.5x bigger than crawler (crawler uses CRAWLER_SIZE * 2.5)
+      const targetSize = CRAWLER_SIZE * 2.5 * 1.5;
       for (const creature of this.creatures) {
         if (creature.alive && creature.type === 'broodmother' && this.broodMotherTexture) {
           creature.sprite.texture = this.broodMotherTexture;
-          const targetSize = CRAWLER_SIZE * 3.75; // 1.5x bigger than crawler (which uses 2.5)
           const scale = targetSize / Math.max(creature.sprite.texture.width, creature.sprite.texture.height);
           creature.sprite.scale.set(scale);
         }
@@ -389,11 +390,13 @@ export class CreatureManager {
   }
 
   private createBroodMotherSprite(): Sprite {
+    // 1.5x bigger than crawler (crawler uses CRAWLER_SIZE * 2.5)
+    const targetSize = CRAWLER_SIZE * 2.5 * 1.5;
+
     // Use loaded sprite if available
     if (this.broodMotherLoaded && this.broodMotherTexture) {
       const sprite = new Sprite(this.broodMotherTexture);
       sprite.anchor.set(0.5, 0.5);
-      const targetSize = CRAWLER_SIZE * 3.75; // 1.5x bigger than crawler (which uses 2.5)
       const scale = targetSize / Math.max(sprite.texture.width, sprite.texture.height);
       sprite.scale.set(scale);
       return sprite;
@@ -401,7 +404,7 @@ export class CreatureManager {
 
     // Fallback: Large purple-ish sprite for brood mother
     const canvas = document.createElement('canvas');
-    const size = CRAWLER_SIZE * 3; // Fallback canvas size
+    const size = targetSize;
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext('2d')!;
@@ -423,7 +426,7 @@ export class CreatureManager {
     const texture = Texture.from(canvas);
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5, 0.5);
-    sprite.scale.set(0.5);
+    sprite.scale.set(1);
     return sprite;
   }
 
@@ -801,17 +804,11 @@ export class CreatureManager {
   private updateBroodMother(broodMother: BroodMother, dt: number, _playerX: number, _playerY: number, _fogOfWar?: FogOfWar): void {
     broodMother.spawnCooldown -= dt;
 
-    // Pulse animation when about to spawn
-    if (broodMother.spawnCooldown <= 1) {
-      const pulse = Math.sin((1 - broodMother.spawnCooldown) * 10) * 0.1 + 1;
-      broodMother.sprite.scale.set(0.5 * pulse);
-    }
-
     if (broodMother.spawnCooldown <= 0) {
-      // Spawn crawlers around the brood mother
+      // Spawn crawlers in random sprawl around the brood mother
       for (let i = 0; i < broodMother.spawnCount; i++) {
-        const angle = (Math.PI * 2 * i) / broodMother.spawnCount;
-        const spawnDist = BROODMOTHER_SIZE + CRAWLER_SIZE;
+        const angle = Math.random() * Math.PI * 2; // Random angle
+        const spawnDist = CRAWLER_SIZE * 2 + Math.random() * CRAWLER_SIZE * 2; // Random distance
         const spawnX = broodMother.x + Math.cos(angle) * spawnDist;
         const spawnY = broodMother.y + Math.sin(angle) * spawnDist;
 
@@ -825,7 +822,6 @@ export class CreatureManager {
       }
 
       broodMother.spawnCooldown = BROODMOTHER_SPAWN_COOLDOWN;
-      broodMother.sprite.scale.set(0.5);
     }
   }
 
