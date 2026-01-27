@@ -45,7 +45,6 @@ export class Game {
 
   // Additional textures
   private lanternTexture: any = null;
-  private flareTexture: any = null;
   private hullTexture: any = null;
   private hullOverlay: Sprite | null = null;
   private playerX = 0;
@@ -194,7 +193,6 @@ export class Game {
     // Preload sprites
     this.playerTexture = await Assets.load('/alien_sprite.png');
     this.lanternTexture = await Assets.load('/lantern_sprite.png');
-    this.flareTexture = await Assets.load('/flare_sprite.png');
     this.hullTexture = await Assets.load('/armory_hull.png');
 
     // Load sounds
