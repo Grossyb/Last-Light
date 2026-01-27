@@ -1,5 +1,6 @@
 import { Graphics, Container, Text, TextStyle } from 'pixi.js';
 import { MazeData, MazeGenerator } from './MazeGenerator';
+import { SoundManager } from './SoundManager';
 
 export type PowerUpType = 'ghost' | 'berserker' | 'shield' | 'speedboost' | 'doubledamage';
 
@@ -270,6 +271,7 @@ export class PowerUpSystem {
 
   private pickupPowerUp(type: PowerUpType): void {
     const config = POWERUP_CONFIGS[type];
+    SoundManager.play('power_up', 0.5);
 
     // Check if we already have this effect active
     const existing = this.activeEffects.find(e => e.type === type);

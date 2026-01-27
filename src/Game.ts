@@ -287,6 +287,9 @@ export class Game {
     // Game is now active
     this.titleScreen?.hide();
 
+    // Start background music
+    SoundManager.startMusic();
+
     // Show HUD elements
     if (this.hudPanel) this.hudPanel.visible = true;
     if (this.hudLevelText) this.hudLevelText.visible = true;
@@ -378,6 +381,9 @@ export class Game {
     this.onTitleScreen = false;
     this.titleScreen?.hide();
     // Game state is preserved, just hide title and continue
+
+    // Start background music
+    SoundManager.startMusic();
   }
 
   private goToMainMenu(): void {
@@ -1241,6 +1247,7 @@ export class Game {
     if (this.points < upgrade.cost) return;
 
     this.points -= upgrade.cost;
+    SoundManager.play('purchase', 0.5);
 
     switch (upgrade.id) {
       case 'rifle':
@@ -1355,6 +1362,7 @@ export class Game {
 
     this.inShop = true;
     this.creatureManager?.stopSpawning();
+    SoundManager.play('exit', 0.6);
 
     // Add level time to total time
     this.totalTime += this.levelTime;
@@ -1423,6 +1431,7 @@ export class Game {
   private completeLevel(): void {
     // Complete level without opening shop (used for non-shop levels)
     this.creatureManager?.stopSpawning();
+    SoundManager.play('exit', 0.6);
 
     // Add level time to total time
     this.totalTime += this.levelTime;
@@ -1750,6 +1759,7 @@ export class Game {
         const targetY = mouse.y - this.worldContainer.y;
         this.fogOfWar.launchFlare(this.playerX, this.playerY, targetX, targetY);
         this.flareCount--;
+        SoundManager.play('flare', 0.5);
       }
     }
 
@@ -2067,32 +2077,54 @@ export class Game {
       this.lanternSprites[i].y = lanterns[i].y;
     }
 
-    // Draw flare glow effects
+    // Draw flare glow effects (animated orange beacon light)
     this.flareGraphics.clear();
+    const time = this.exitAnimTime; // Reuse animation time
+    const pulse = Math.sin(time * 4) * 0.3 + 0.7;
+    const fastPulse = Math.sin(time * 8) * 0.5 + 0.5;
+
     for (const flare of flares) {
+      // Large outer glow
       this.flareGraphics.circle(flare.x, flare.y, FLARE_RADIUS);
-      this.flareGraphics.fill({ color: 0xff4400, alpha: 0.08 });
+      this.flareGraphics.fill({ color: 0xff4400, alpha: 0.08 * pulse });
+
+      // Medium glow ring
+      this.flareGraphics.circle(flare.x, flare.y, 40);
+      this.flareGraphics.fill({ color: 0xff6600, alpha: 0.15 * pulse });
+
+      // Inner glow
+      this.flareGraphics.circle(flare.x, flare.y, 25);
+      this.flareGraphics.fill({ color: 0xff8800, alpha: 0.25 * pulse });
+
+      // Core bright circle
+      this.flareGraphics.circle(flare.x, flare.y, 12);
+      this.flareGraphics.fill({ color: 0xffaa00, alpha: 0.8 });
+
+      // Hot white center
+      this.flareGraphics.circle(flare.x, flare.y, 5);
+      this.flareGraphics.fill({ color: 0xffeecc, alpha: fastPulse });
+
+      // Flickering rays
+      const rayCount = 6;
+      for (let i = 0; i < rayCount; i++) {
+        const angle = time * 2 + (Math.PI * 2 * i) / rayCount;
+        const rayLength = 20 + Math.sin(time * 6 + i) * 8;
+        const x1 = flare.x + Math.cos(angle) * 8;
+        const y1 = flare.y + Math.sin(angle) * 8;
+        const x2 = flare.x + Math.cos(angle) * rayLength;
+        const y2 = flare.y + Math.sin(angle) * rayLength;
+
+        this.flareGraphics.moveTo(x1, y1);
+        this.flareGraphics.lineTo(x2, y2);
+        this.flareGraphics.stroke({ color: 0xffaa44, width: 2, alpha: 0.5 * pulse });
+      }
     }
 
-    // Update flare sprites - add new ones or remove old ones as needed
-    while (this.flareSprites.length < flares.length) {
-      const sprite = new Sprite(this.flareTexture);
-      sprite.anchor.set(0.5, 0.5);
-      const spriteSize = 35;
-      const scale = spriteSize / Math.max(sprite.width, sprite.height);
-      sprite.scale.set(scale);
-      this.flareSpritesContainer!.addChild(sprite);
-      this.flareSprites.push(sprite);
-    }
-    while (this.flareSprites.length > flares.length) {
+    // Clear old flare sprites (no longer used)
+    while (this.flareSprites.length > 0) {
       const sprite = this.flareSprites.pop()!;
       this.flareSpritesContainer!.removeChild(sprite);
       sprite.destroy();
-    }
-    // Update flare sprite positions
-    for (let i = 0; i < flares.length; i++) {
-      this.flareSprites[i].x = flares[i].x;
-      this.flareSprites[i].y = flares[i].y;
     }
 
     // Draw flying flares (still use graphics for these since they move)
