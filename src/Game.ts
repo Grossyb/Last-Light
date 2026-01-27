@@ -101,8 +101,6 @@ export class Game {
   private exitMarker: Graphics | null = null;
   private exitDiscovered = false;
   private exitAnimTime = 0;
-  private exitX = 0;
-  private exitY = 0;
 
   // Systems
   private fogOfWar: FogOfWar | null = null;
@@ -754,8 +752,6 @@ export class Game {
       this.maze.exitRoom.centerY
     );
 
-    this.exitX = exitPos.x;
-    this.exitY = exitPos.y;
     this.exitAnimTime = 0;
 
     this.exitMarker = new Graphics();
