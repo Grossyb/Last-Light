@@ -260,8 +260,8 @@ export class CombatSystem {
   }
 
   // Get all visible creatures sorted by distance (nearest first)
+  // Uses spatial hash grid for O(1) nearby lookup instead of O(n) full scan
   private getAllVisibleCreaturesSortedByDistance(playerX: number, playerY: number): Array<Creature & { dist: number }> {
-    const creatures = this.creatureManager.getCreatures();
     const visibleCreatures: Array<Creature & { dist: number }> = [];
 
     // Find max range among owned weapons
@@ -270,12 +270,13 @@ export class CombatSystem {
       maxRange = Math.max(maxRange, this.getRange(weapon));
     }
 
-    for (const creature of creatures) {
+    // Use spatial grid to get only nearby creatures (O(1) instead of O(n))
+    const nearbyCreatures = this.creatureManager.getCreaturesNearPoint(playerX, playerY, maxRange);
+
+    for (const creature of nearbyCreatures) {
       const dx = creature.x - playerX;
       const dy = creature.y - playerY;
       const dist = Math.sqrt(dx * dx + dy * dy);
-
-      if (dist >= maxRange) continue;
 
       // Check if creature is in a lit tile (visible)
       const creatureTile = MazeGenerator.worldToTile(creature.x, creature.y);
@@ -377,11 +378,12 @@ export class CombatSystem {
       }
     }
 
-    // Check for creature collisions with blade
-    const creatures = this.creatureManager.getCreatures();
+    // Check for creature collisions with blade using spatial grid
     const bladeHitRadius = 30;
+    const maxCreatureSize = 30; // Approximate max creature size for search radius
+    const nearbyCreatures = this.creatureManager.getCreaturesNearPoint(bladeX, bladeY, bladeHitRadius + maxCreatureSize);
 
-    for (const creature of creatures) {
+    for (const creature of nearbyCreatures) {
       // Skip if on cooldown
       if (this.scytheHitCooldowns.has(creature.id)) continue;
 
@@ -484,8 +486,8 @@ export class CombatSystem {
   }
 
   private updateBullets(dt: number): void {
-    const creatures = this.creatureManager.getCreatures();
     const bulletsToRemove: Bullet[] = [];
+    const bulletHitSearchRadius = 50; // Max creature size + bullet radius
 
     for (const bullet of this.bullets) {
       bullet.x += bullet.vx * dt;
@@ -511,8 +513,10 @@ export class CombatSystem {
         continue;
       }
 
-      // Creature collision
-      for (const creature of creatures) {
+      // Creature collision - use spatial grid for O(1) nearby lookup
+      const nearbyCreatures = this.creatureManager.getCreaturesNearPoint(bullet.x, bullet.y, bulletHitSearchRadius);
+
+      for (const creature of nearbyCreatures) {
         const dx = bullet.x - creature.x;
         const dy = bullet.y - creature.y;
         const dist = Math.sqrt(dx * dx + dy * dy);

@@ -68,12 +68,12 @@ export const STARTING_MAP_SIZE = 25; // 25x25 tiles
 export const MAP_SIZE_INCREMENT = 5; // +5 tiles per level
 export const MAX_MAP_SIZE = 60; // cap at 60x60
 
-// Crawler Spawning (endless)
-export const CRAWLER_SPAWN_RATE_BASE = 0.8; // crawlers per second at level 1
-export const CRAWLER_SPAWN_RATE_INCREMENT = 0.3; // +0.3 per level
+// Crawler Spawning (endless) - cranked up with spatial hash optimization
+export const CRAWLER_SPAWN_RATE_BASE = 1.5; // crawlers per second at level 1
+export const CRAWLER_SPAWN_RATE_INCREMENT = 0.5; // +0.5 per level
 export const CRAWLER_HP_SCALE_PER_LEVEL = 0.2; // +20% HP per level
 export const CRAWLER_SPEED_SCALE_PER_LEVEL = 0.05; // +5% speed per level
-export const MAX_CRAWLERS_ALIVE = 500; // increased with sprite optimization
+export const MAX_CRAWLERS_ALIVE = 1200; // increased with spatial hash grid optimization
 
 // Flare flight
 export const FLARE_FLIGHT_SPEED = 800; // units per second

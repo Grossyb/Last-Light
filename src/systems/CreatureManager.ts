@@ -1,6 +1,7 @@
 import { Container, Sprite, Texture, Assets, Graphics } from 'pixi.js';
 import { MazeData, MazeGenerator } from './MazeGenerator';
 import { FogOfWar } from './FogOfWar';
+import { SpatialHashGrid } from './SpatialHashGrid';
 import {
   CRAWLER_BASE_HP,
   CRAWLER_BASE_SPEED,
@@ -117,6 +118,8 @@ export class CreatureManager {
   private particleContainer: Container;
   private projectileContainer: Container;
   private creatures: Creature[] = [];
+  private creatureMap: Map<number, Creature> = new Map(); // Fast O(1) lookup by ID
+  private spatialGrid: SpatialHashGrid; // Spatial partitioning for collision
   private particles: DeathParticle[] = [];
   private gooProjectiles: GooProjectile[] = [];
   private gooPuddles: GooPuddle[] = [];
@@ -166,6 +169,9 @@ export class CreatureManager {
     this.projectileContainer = new Container();
     this.container.addChild(this.particleContainer);
     this.container.addChild(this.projectileContainer);
+
+    // Initialize spatial hash grid with cell size of 2 tiles for optimal performance
+    this.spatialGrid = new SpatialHashGrid(TILE_SIZE * 2);
 
     this.createTextures();
     this.loadCrawlerTexture();
@@ -270,12 +276,12 @@ export class CreatureManager {
   triggerHordeRush(): void {
     if (this.hordeRushActive) return;
     this.hordeRushActive = true;
-    this.spawnRate = this.baseSpawnRate * 6;
-    this.speedMultiplier *= 1.5;
-    this.maxCreaturesAlive = Math.min(800, this.maxCreaturesAlive * 2);
+    this.spawnRate = this.baseSpawnRate * 10; // Massive spawn increase
+    this.speedMultiplier *= 1.8; // Faster enemies
+    this.maxCreaturesAlive = Math.min(2000, this.maxCreaturesAlive * 3); // Allow way more creatures
     for (const creature of this.creatures) {
       if (creature.alive && creature.type === 'crawler') {
-        creature.speed *= 1.5;
+        creature.speed *= 1.8;
       }
     }
   }
@@ -332,10 +338,19 @@ export class CreatureManager {
   }
 
   freezeEnemiesInRadius(x: number, y: number, radius: number, duration: number): void {
-    for (const creature of this.creatures) {
-      if (!creature.alive) continue;
-      const dist = Math.sqrt((creature.x - x) ** 2 + (creature.y - y) ** 2);
-      if (dist <= radius) {
+    // Use spatial grid for O(1) nearby lookup instead of O(n) full scan
+    const nearbyIds = this.spatialGrid.getNearby(x, y, radius);
+    const radiusSq = radius * radius;
+
+    for (const id of nearbyIds) {
+      const creature = this.creatureMap.get(id);
+      if (!creature || !creature.alive) continue;
+
+      const dx = creature.x - x;
+      const dy = creature.y - y;
+      const distSq = dx * dx + dy * dy;
+
+      if (distSq <= radiusSq) {
         creature.frozen = true;
         creature.frozenTime = duration;
         creature.sprite.tint = 0x88ddff;
@@ -465,6 +480,8 @@ export class CreatureManager {
     };
 
     this.creatures.push(crawler);
+    this.creatureMap.set(crawler.id, crawler);
+    this.spatialGrid.insert(crawler.id, x, y);
     return crawler;
   }
 
@@ -499,6 +516,8 @@ export class CreatureManager {
     };
 
     this.creatures.push(spitter);
+    this.creatureMap.set(spitter.id, spitter);
+    this.spatialGrid.insert(spitter.id, x, y);
     return spitter;
   }
 
@@ -530,6 +549,8 @@ export class CreatureManager {
     };
 
     this.creatures.push(broodMother);
+    this.creatureMap.set(broodMother.id, broodMother);
+    this.spatialGrid.insert(broodMother.id, x, y);
     return broodMother;
   }
 
@@ -631,18 +652,20 @@ export class CreatureManager {
         this.spawnSingleCrawler(playerX, playerY, fogOfWar);
       }
 
-      // Spawn spitters (starting at level 3)
+      // Spawn spitters (starting at level 3) - scales with level
       if (this.currentLevel >= SPITTER_START_LEVEL) {
-        this.spitterSpawnAccumulator += dt * 0.1; // 1 spitter per 10 seconds base
+        const spitterRate = 0.2 + (this.currentLevel - SPITTER_START_LEVEL) * 0.1; // Faster at higher levels
+        this.spitterSpawnAccumulator += dt * spitterRate;
         if (this.spitterSpawnAccumulator >= 1) {
           this.spitterSpawnAccumulator -= 1;
           this.spawnSpecialCreature('spitter', playerX, playerY, fogOfWar);
         }
       }
 
-      // Spawn brood mothers (starting at level 5)
+      // Spawn brood mothers (starting at level 5) - scales with level
       if (this.currentLevel >= BROODMOTHER_START_LEVEL) {
-        this.broodmotherSpawnAccumulator += dt * 0.05; // 1 brood mother per 20 seconds base
+        const broodmotherRate = 0.1 + (this.currentLevel - BROODMOTHER_START_LEVEL) * 0.05; // Faster at higher levels
+        this.broodmotherSpawnAccumulator += dt * broodmotherRate;
         if (this.broodmotherSpawnAccumulator >= 1) {
           this.broodmotherSpawnAccumulator -= 1;
           this.spawnSpecialCreature('broodmother', playerX, playerY, fogOfWar);
@@ -739,6 +762,9 @@ export class CreatureManager {
     crawler.y = newY;
     crawler.sprite.x = crawler.x;
     crawler.sprite.y = crawler.y;
+
+    // Update spatial grid position
+    this.spatialGrid.update(crawler.id, newX, newY);
 
     // Update rotation
     if (dirX !== 0 || dirY !== 0) {
@@ -981,28 +1007,59 @@ export class CreatureManager {
 
   private spawnDeathParticles(x: number, y: number, color: number = 0xff4444): void {
     this.ensureTextures();
-    const particleCount = 8 + Math.floor(Math.random() * 5);
+    // Explosive burst of particles!
+    const particleCount = 15 + Math.floor(Math.random() * 10);
 
     for (let i = 0; i < particleCount; i++) {
-      const angle = (Math.PI * 2 * i) / particleCount + (Math.random() - 0.5) * 0.5;
-      const speed = 80 + Math.random() * 120;
+      const angle = (Math.PI * 2 * i) / particleCount + (Math.random() - 0.5) * 0.8;
+      const speed = 150 + Math.random() * 250; // Faster explosion
 
       const sprite = this.createParticleSprite();
       sprite.x = x + (Math.random() - 0.5) * CRAWLER_SIZE;
       sprite.y = y + (Math.random() - 0.5) * CRAWLER_SIZE;
-      sprite.scale.set(0.8 + Math.random() * 0.6);
+      sprite.scale.set(1.0 + Math.random() * 1.2); // Bigger particles
       sprite.tint = color;
       sprite.alpha = 1;
 
       this.particleContainer.addChild(sprite);
 
+      const life = 0.4 + Math.random() * 0.4;
       this.particles.push({
         x: sprite.x,
         y: sprite.y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        life: 0.3 + Math.random() * 0.3,
-        maxLife: 0.3 + Math.random() * 0.3,
+        life,
+        maxLife: life,
+        size: sprite.scale.x,
+        sprite,
+      });
+    }
+
+    // Add some extra "gore" particles that spray outward
+    for (let i = 0; i < 6; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 200 + Math.random() * 300;
+
+      const sprite = this.createParticleSprite();
+      sprite.x = x;
+      sprite.y = y;
+      sprite.scale.set(0.5 + Math.random() * 0.5);
+      // Slightly vary the color for depth
+      const colorVariation = Math.random() > 0.5 ? 0xcc3333 : color;
+      sprite.tint = colorVariation;
+      sprite.alpha = 1;
+
+      this.particleContainer.addChild(sprite);
+
+      const life = 0.5 + Math.random() * 0.3;
+      this.particles.push({
+        x: sprite.x,
+        y: sprite.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 100, // Slight upward bias
+        life,
+        maxLife: life,
         size: sprite.scale.x,
         sprite,
       });
@@ -1031,11 +1088,9 @@ export class CreatureManager {
   }
 
   damageCreature(creatureId: number, damage: number): boolean {
-    const creatureIndex = this.creatures.findIndex(c => c.id === creatureId);
-    if (creatureIndex === -1) return false;
-
-    const creature = this.creatures[creatureIndex];
-    if (!creature.alive) return false;
+    // Use O(1) map lookup instead of O(n) findIndex
+    const creature = this.creatureMap.get(creatureId);
+    if (!creature || !creature.alive) return false;
 
     creature.hp -= damage;
     creature.sprite.tint = 0xff6666;
@@ -1052,7 +1107,14 @@ export class CreatureManager {
 
       this.container.removeChild(creature.sprite);
       creature.sprite.destroy();
-      this.creatures.splice(creatureIndex, 1);
+
+      // Remove from all data structures
+      const creatureIndex = this.creatures.indexOf(creature);
+      if (creatureIndex !== -1) {
+        this.creatures.splice(creatureIndex, 1);
+      }
+      this.creatureMap.delete(creatureId);
+      this.spatialGrid.remove(creatureId);
 
       return true;
     }
@@ -1094,6 +1156,38 @@ export class CreatureManager {
     return this.creatures.filter(c => c.type === 'broodmother' && c.alive).length;
   }
 
+  /**
+   * Get creatures near a point using spatial hash grid (O(1) lookup)
+   * Much faster than iterating all creatures for collision detection
+   */
+  getCreaturesNearPoint(x: number, y: number, radius: number): Creature[] {
+    const nearbyIds = this.spatialGrid.getNearby(x, y, radius);
+    const results: Creature[] = [];
+    const radiusSq = radius * radius;
+
+    for (const id of nearbyIds) {
+      const creature = this.creatureMap.get(id);
+      if (!creature || !creature.alive) continue;
+
+      const dx = creature.x - x;
+      const dy = creature.y - y;
+      const distSq = dx * dx + dy * dy;
+
+      if (distSq <= radiusSq) {
+        results.push(creature);
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Get creature by ID using O(1) map lookup
+   */
+  getCreatureById(id: number): Creature | undefined {
+    return this.creatureMap.get(id);
+  }
+
   // ============================================
   // CLEANUP
   // ============================================
@@ -1106,6 +1200,8 @@ export class CreatureManager {
       creature.sprite.destroy();
     }
     this.creatures = [];
+    this.creatureMap.clear();
+    this.spatialGrid.clear();
 
     for (const particle of this.particles) {
       if (particle.sprite.parent) {
